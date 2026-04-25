@@ -288,6 +288,10 @@ test:provider:unit:
   needs: ["build:provider"]
   <<: *cache_go_provider
   <<: *rules_mr_or_default_branch
+  # Override the Node-flavored default.before_script — the Go image
+  # has no node/npm so `node --version` fails.
+  before_script:
+    - go version
   script:
     - cd $PROVIDER_DIR
     - GOCACHE=$CI_PROJECT_DIR/.go-cache-provider go test ./... -count=1 -timeout 5m
@@ -298,6 +302,8 @@ test:fleetctl:unit:
   needs: ["build:fleetctl"]
   <<: *cache_go_fleetctl
   <<: *rules_mr_or_default_branch
+  before_script:
+    - go version
   script:
     - cd $FLEETCTL_DIR
     - GOCACHE=$CI_PROJECT_DIR/.go-cache-fleetctl go test ./... -count=1 -timeout 5m
