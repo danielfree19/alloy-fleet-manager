@@ -472,6 +472,10 @@ release:fleetctl:goreleaser:
   <<: *rules_tag_only
   before_script:
     - apk add --no-cache git
+    # goreleaser v2 won't traverse `..` in archives.files. Copy the
+    # repo-root LICENSE and NOTICE into the fleetctl module so the
+    # archive bundles them with local paths.
+    - cp LICENSE NOTICE cmd/fleetctl/
   script:
     - cd $FLEETCTL_DIR
     - goreleaser release --clean --config .goreleaser.yml

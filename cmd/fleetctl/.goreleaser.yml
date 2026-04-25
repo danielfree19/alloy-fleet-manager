@@ -46,14 +46,14 @@ archives:
   - id: fleetctl-archive
     formats: ['tar.gz']
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-    # Paths are resolved relative to the goreleaser working directory
-    # (cmd/fleetctl). We hop up to the repo root for the canonical
-    # LICENSE rather than maintaining a duplicate.
+    # LICENSE and NOTICE are copied into cmd/fleetctl/ by the CI
+    # before_script (and by `make release`-style local invocations)
+    # before goreleaser runs. goreleaser v2's archives.files globbing
+    # resolves relative to the goreleaser working directory and chokes
+    # on `..` traversal, so we keep the paths local.
     files:
-      - src: ../../LICENSE
-        dst: LICENSE
-      - src: ../../NOTICE
-        dst: NOTICE
+      - LICENSE
+      - NOTICE
     format_overrides:
       - goos: windows
         formats: ['zip']

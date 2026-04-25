@@ -8,3 +8,8 @@ coverage/
 .tmp/
 state/
 .tokens
+# LICENSE/NOTICE copies inside cmd/fleetctl/ are produced by the CI
+# release job (and `make release` locally) so goreleaser can bundle
+# them via local paths. The canonical files live at the repo root.
+cmd/fleetctl/LICENSE
+cmd/fleetctl/NOTICE

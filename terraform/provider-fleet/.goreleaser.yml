@@ -74,6 +74,13 @@ builds:
         goarch: arm
       - goos: freebsd
         goarch: arm64
+      # freebsd/arm with goarm 6 AND 7 produces two builds with the
+      # same archive filename (the Registry's expected name template
+      # has no slot for the arm variant). Drop freebsd/arm — the
+      # Terraform Registry does not advertise it in the standard
+      # provider matrix.
+      - goos: freebsd
+        goarch: arm
 
 archives:
   # Filename + format mandated by the Terraform Registry. Do NOT change
