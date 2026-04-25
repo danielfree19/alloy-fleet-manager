@@ -44,7 +44,7 @@ v0.2.0 from npm and the Terraform Registry" is typically 10–15 minutes.
 | `terraform-provider-fleet_*_SHA256SUMS` (+ `.sig`) | GoReleaser, GPG-signed         | Same as above                                                   |
 | `fleetctl_*_*.tar.gz` / `.zip`        | `cmd/fleetctl/`                           | GitLab generic package, GitHub Releases (via mirror)            |
 | `@fleet-oss/sdk@<version>`            | `packages/sdk/`                           | npm public registry                                             |
-| All refs + tags                       | The whole repo                            | `github.com/fleet-oss/alloy-fleet-manager` (mirror)             |
+| All refs + tags                       | The whole repo                            | `github.com/danielfree19/alloy-fleet-manager` (mirror)             |
 
 Operator install snippets are in [`README.md`](../README.md) and the
 per-component docs (`docs/terraform.md`, `docs/fleetctl.md`,

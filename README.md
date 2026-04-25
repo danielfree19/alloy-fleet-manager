@@ -3,16 +3,25 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![pipeline status](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/badges/main/pipeline.svg)](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/-/pipelines)
 [![npm](https://img.shields.io/npm/v/@fleet-oss/sdk?label=%40fleet-oss%2Fsdk)](https://www.npmjs.com/package/@fleet-oss/sdk)
-[![Terraform Registry](https://img.shields.io/badge/Terraform-fleet--oss%2Ffleet-7B42BC.svg?logo=terraform)](https://registry.terraform.io/providers/fleet-oss/fleet)
+[![Terraform Registry](https://img.shields.io/badge/Terraform-danielfree19%2Ffleet-7B42BC.svg?logo=terraform)](https://registry.terraform.io/providers/danielfree19/fleet)
 [![DCO](https://img.shields.io/badge/DCO-required-success)](CONTRIBUTING.md#sign-off-dco)
 
 A self-hosted, vendor-neutral replacement for Grafana Cloud Fleet Management.
 Built around Grafana Alloy's **native `remotecfg`** block, so Alloy itself is
 the agent — no sidecar process per host.
 
-> **Source of truth: [GitLab](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager).**
-> [GitHub](https://github.com/fleet-oss/alloy-fleet-manager) is a read-only
-> mirror — please file issues and MRs on GitLab.
+> **Open-source community project.** This is an independent open-source tool
+> for managing fleets of [Grafana Alloy](https://github.com/grafana/alloy)
+> collectors. It is **not affiliated with, endorsed by, or sponsored by
+> Grafana Labs.** "Grafana" and "Alloy" are trademarks of Grafana Labs and
+> are used here for descriptive interoperability purposes only. The software
+> is provided **as-is, without warranty of any kind**, under the Apache-2.0
+> license — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+> **Source of truth: [GitLab (private)](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager).**
+> [GitHub](https://github.com/danielfree19/alloy-fleet-manager) is the public
+> read-only mirror. External contributors: open issues and pull requests on
+> GitHub; maintainers will reconcile them into the source repository.
 
 ## What you get
 

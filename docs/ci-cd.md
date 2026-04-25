@@ -2,7 +2,7 @@
 
 This project's continuous-integration pipeline lives in
 [`.gitlab-ci.yml`](../.gitlab-ci.yml). GitLab is the source of truth;
-GitHub at <https://github.com/fleet-oss/alloy-fleet-manager> is a
+GitHub at <https://github.com/danielfree19/alloy-fleet-manager> is a
 read-only mirror updated by the `mirror:github` job.
 
 > If you only want to **release** a new version, jump straight to
@@ -61,7 +61,7 @@ exposed to protected branches/tags). Anything in *italics* is optional.
 | `GPG_PASSPHRASE`        | `release:provider:goreleaser`           | Passphrase for the key above. |
 | `NPM_TOKEN`             | `release:sdk:npm`                       | "Automation" token for the `@fleet-oss` npm scope. |
 | `GITHUB_DEPLOY_KEY`     | `mirror:github`                         | base64-encoded ed25519 private key. The matching public key is added as a **deploy key** on the GitHub mirror with **Allow write access** ticked. |
-| `GITHUB_MIRROR_URL`     | `mirror:github`                         | e.g. `github.com/fleet-oss/alloy-fleet-manager.git`. |
+| `GITHUB_MIRROR_URL`     | `mirror:github`                         | e.g. `github.com/danielfree19/alloy-fleet-manager.git`. |
 | *`NIGHTLY`*             | `smoke:e2e-terraform` (schedule)        | Set to `"true"` on a Pipeline Schedule for nightly e2e runs. |
 | *`NIGHTLY_MIRROR`*      | `mirror:github` (schedule)              | Set to `"true"` on a separate Pipeline Schedule if you want a once-a-day mirror push regardless of repository activity. |
 

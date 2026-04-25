@@ -349,7 +349,7 @@ In rough order, useful for "wait, when did X land?":
      for `@fleet-oss/sdk`.
    - **The SDK was renamed from `@fleet/sdk` to `@fleet-oss/sdk`** so
      the npm scope matches the existing Go module org
-     (`github.com/fleet-oss/...`). Internal TS code never imported the
+     (`github.com/danielfree19/...`). Internal TS code never imported the
      SDK by package name (only docs did), so this is a safe rename.
      Lockfile and all docs were updated.
    - GitHub mirror uses an **ed25519 deploy key** (base64-encoded into

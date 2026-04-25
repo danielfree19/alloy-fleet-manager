@@ -5,7 +5,7 @@ and is developed primarily on **GitLab** — GitHub is a read-only mirror
 that is updated automatically by CI on every push and tag.
 
 > Source of truth:    https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager
-> GitHub mirror:      https://github.com/fleet-oss/alloy-fleet-manager
+> GitHub mirror:      https://github.com/danielfree19/alloy-fleet-manager
 > Issues / MRs / CI:  on **GitLab**
 
 If you discover a bug or have a feature idea, please **open an issue on

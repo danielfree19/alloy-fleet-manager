@@ -1,8 +1,8 @@
 # GitLab CI/CD pipeline for the Alloy Fleet Manager (OSS) project.
 #
-# GitLab is the source of truth. GitHub (https://github.com/fleet-oss/...)
-# is a read-only mirror updated by the `mirror:github` job below on every
-# push to a protected branch and on every tag.
+# GitLab is the source of truth. GitHub (https://github.com/danielfree19/...)
+# is the public read-only mirror updated by the `mirror:github` job below on
+# every push to a protected branch and on every tag.
 #
 # The pipeline is structured so that:
 #   * fast feedback (lint, typecheck, build, unit) runs on every MR and
@@ -486,7 +486,13 @@ release:sdk:npm:
         echo "✗ packages/sdk/package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
         exit 1
       fi
-    - npm publish --workspace packages/sdk --access public --provenance
+    # NOTE: `--provenance` is intentionally OFF here. npm provenance only
+    # attests when the publish runs on a supported CI provider (GitHub
+    # Actions, GitLab.com SaaS, CircleCI). On a self-hosted GitLab the
+    # token-exchange step required for provenance is not available, and
+    # passing the flag fails the publish. To enable provenance, mirror
+    # the publish to a GitHub Action that triggers on the mirror's tag.
+    - npm publish --workspace packages/sdk --access public
 
 # ===========================================================================
 # Stage: mirror  (always runs on default branch + tags)
@@ -496,7 +502,7 @@ release:sdk:npm:
 # mirror is read-only on the GitHub side; issues and MRs stay on GitLab.
 #
 # Required CI variables:
-#   GITHUB_MIRROR_URL    e.g.  github.com/fleet-oss/alloy-fleet-manager.git
+#   GITHUB_MIRROR_URL    e.g.  github.com/danielfree19/alloy-fleet-manager.git
 #   GITHUB_DEPLOY_KEY    base64-encoded private SSH key with **write**
 #                        access to the GitHub mirror (a GitHub deploy key
 #                        with "Allow write access" enabled). Generate

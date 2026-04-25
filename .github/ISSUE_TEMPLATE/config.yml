@@ -1,0 +1,18 @@
+# GitHub-side issue template config.
+#
+# blank_issues_enabled: false forces every new issue through one of the
+# templates above. The "Security report" link below intercepts vuln
+# reports so they don't land as public issues.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/danielfree19/alloy-fleet-manager/security/advisories/new
+    about: |
+      Please DO NOT open a public GitHub issue for security vulnerabilities.
+      Use GitHub Security Advisories or follow the private disclosure path
+      in SECURITY.md.
+  - name: Question / discussion
+    url: https://github.com/danielfree19/alloy-fleet-manager/discussions
+    about: |
+      For usage questions or open-ended design discussion, open a Discussion
+      instead of an issue.
