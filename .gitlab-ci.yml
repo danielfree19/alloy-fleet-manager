@@ -423,32 +423,36 @@ release:docker:fleet-manager:
 
 release:provider:goreleaser:
   stage: release
-  image: goreleaser/goreleaser:latest
+  # The goreleaser image has ENTRYPOINT ["goreleaser"], which makes the
+  # GitLab runner's shell bootstrap get passed as goreleaser arguments
+  # (`goreleaser -c "<script>"` → unknown shorthand flag 'c'). Override.
+  image:
+    name: goreleaser/goreleaser:latest
+    entrypoint: [""]
   needs: []
   <<: *rules_tag_only
   before_script:
-    - apk add --no-cache git gnupg
-    # GPG signing is OPTIONAL for GitHub Releases. It is REQUIRED for
-    # the Terraform Registry — the Registry rejects unsigned
-    # SHA256SUMS. When GPG_PRIVATE_KEY is set we sign as before; when
-    # it isn't we pass --skip=sign so the release still produces
-    # binaries + checksums for GitHub Releases.
+    - apk add --no-cache git gnupg bash
+  script:
+    # Single bash block so GORELEASER_FLAGS persists into the
+    # goreleaser invocation (CI script lines run in fresh shells, so
+    # variables set in one line don't carry into the next).
     - |
+      bash -c '
+      set -euo pipefail
+      cd "$PROVIDER_DIR"
+      FLAGS="--clean"
       if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
         echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-        export GPG_FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+        export GPG_FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: "/^fpr:/ {print \$10; exit}")"
         echo "✓ GPG signing enabled — fingerprint $GPG_FINGERPRINT"
-        echo "GORELEASER_FLAGS=--clean" > "$CI_PROJECT_DIR/.goreleaser-flags"
       else
         echo "⚠ GPG_PRIVATE_KEY not set — skipping signature step."
-        echo "  Set it under Settings → CI/CD → Variables to make releases"
-        echo "  installable from registry.terraform.io."
-        echo "GORELEASER_FLAGS=--clean --skip=sign" > "$CI_PROJECT_DIR/.goreleaser-flags"
+        echo "  Required only for publishing through registry.terraform.io."
+        FLAGS="$FLAGS --skip=sign"
       fi
-  script:
-    - source "$CI_PROJECT_DIR/.goreleaser-flags"
-    - cd $PROVIDER_DIR
-    - goreleaser release $GORELEASER_FLAGS --config .goreleaser.yml
+      goreleaser release $FLAGS --config .goreleaser.yml
+      '
   artifacts:
     name: "terraform-provider-fleet-$CI_COMMIT_TAG"
     paths:
@@ -459,7 +463,11 @@ release:provider:goreleaser:
 
 release:fleetctl:goreleaser:
   stage: release
-  image: goreleaser/goreleaser:latest
+  # See note in release:provider:goreleaser — same ENTRYPOINT override
+  # is needed for the goreleaser image.
+  image:
+    name: goreleaser/goreleaser:latest
+    entrypoint: [""]
   needs: []
   <<: *rules_tag_only
   before_script:
