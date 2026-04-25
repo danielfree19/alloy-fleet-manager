@@ -489,10 +489,16 @@ release:sdk:npm:
   <<: *rules_tag_only
   before_script:
     - npm --version
+    # oathtool generates the npm 2FA OTP from NPM_TOTP_SECRET (the same
+    # base32 string your authenticator app uses). Required because the
+    # account has 2FA-on-write enabled and CI can't be interactive.
+    - apt-get update && apt-get install -y --no-install-recommends oathtool
     - |
       if [ -z "${NPM_TOKEN:-}" ]; then
-        echo "✗ NPM_TOKEN is not set; configure it under Settings → CI/CD → Variables"
-        exit 1
+        echo "✗ NPM_TOKEN is not set"; exit 1
+      fi
+      if [ -z "${NPM_TOTP_SECRET:-}" ]; then
+        echo "✗ NPM_TOTP_SECRET is not set (npm requires 2FA on publish)"; exit 1
       fi
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
   script:
@@ -508,98 +514,88 @@ release:sdk:npm:
         echo "✗ packages/sdk/package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
         exit 1
       fi
-    # NOTE: `--provenance` is intentionally OFF here. npm provenance only
-    # attests when the publish runs on a supported CI provider (GitHub
-    # Actions, GitLab.com SaaS, CircleCI). On a self-hosted GitLab the
-    # token-exchange step required for provenance is not available, and
-    # passing the flag fails the publish. To enable provenance, mirror
-    # the publish to a GitHub Action that triggers on the mirror's tag.
-    - npm publish --workspace packages/sdk --access public
+    # Generate the OTP RIGHT BEFORE publish (TOTP window is 30s).
+    # `--provenance` stays off; npm only attests provenance from a few
+    # supported providers and self-hosted GitLab isn't one.
+    - |
+      OTP=$(oathtool --totp -b "$NPM_TOTP_SECRET")
+      npm publish --workspace packages/sdk --access public --otp="$OTP"
 
-# ---- 5. GitHub Releases publish (TF provider + fleetctl artifacts) ------
+# ---- 5. GitLab Release: Generic Packages + Release entry ----------------
 #
-# After the GoReleaser jobs produce dist/* (zips/tars + SHA256SUMS,
-# optionally signed), upload them to GitHub Releases on the public
-# mirror so external users have a stable download URL. The Terraform
-# Registry can also be pointed at this repo (it polls GitHub Releases
-# under github.com/<ns>/terraform-provider-<name>).
+# Uploads the GoReleaser dist/* (TF provider + fleetctl) to GitLab's
+# built-in Generic Package registry, then creates a GitLab Release
+# pinning each artifact as a downloadable asset link. This is the
+# self-hosted equivalent of GitHub Releases — the project's `Releases`
+# page becomes the single source of binaries for external users.
 #
-# Required CI variables:
-#   GITHUB_RELEASES_TOKEN   GitHub PAT with `repo` scope. Used for
-#                           `gh release create` against the mirror.
-#                           Distinct from GITHUB_DEPLOY_KEY (SSH key for
-#                           the mirror push) — the API surface needs a
-#                           token, not a deploy key.
+# Auth: uses the per-job CI_JOB_TOKEN, which has the right scopes by
+# default. No extra CI variable required.
+#
+# Public access: works for anyone (no auth) only if the project's
+# visibility is `public`. With `private`/`internal` external installs
+# need a deploy token; document this in docs/release.md.
 
-release:github:
-  # In the mirror stage so it runs AFTER mirror:github has pushed the
-  # tag to GitHub. gh release create needs the tag to exist on the
-  # destination repo.
-  stage: mirror
-  image: alpine:3.20
+release:gitlab:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
   <<: *rules_tag_only
   needs:
-    - job: mirror:github
-      artifacts: false
     - job: release:provider:goreleaser
       artifacts: true
     - job: release:fleetctl:goreleaser
       artifacts: true
   before_script:
-    - apk add --no-cache github-cli git bash
-    - |
-      if [ -z "${GITHUB_RELEASES_TOKEN:-}" ]; then
-        echo "✗ GITHUB_RELEASES_TOKEN not set."
-        echo "  Configure under Settings → CI/CD → Variables (masked + protected)."
-        exit 1
-      fi
-    # gh respects GH_TOKEN for API auth.
-    - export GH_TOKEN="$GITHUB_RELEASES_TOKEN"
+    - apk add --no-cache curl bash
   script:
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - REPO="danielfree19/alloy-fleet-manager"
-    # The mirror:github job pushes the tag; we explicitly wait for it
-    # by polling, since GitLab DAG can't depend across stages cleanly.
     - |
-      for i in $(seq 1 30); do
-        if gh api "/repos/$REPO/git/refs/tags/$CI_COMMIT_TAG" >/dev/null 2>&1; then
-          echo "✓ tag $CI_COMMIT_TAG is on GitHub"
-          break
-        fi
-        echo "[$i] waiting for $CI_COMMIT_TAG to land on GitHub..."
-        sleep 4
-      done
-    # Create or replace the release. --notes-file uses a section of
-    # CHANGELOG.md when present; falls back to a one-liner.
-    - |
-      if [ -f CHANGELOG.md ] && grep -q "^## \[${VERSION}\]" CHANGELOG.md; then
-        # Extract the version's section as release notes.
-        awk "/^## \\[${VERSION}\\]/{flag=1;next}/^## \\[/{flag=0}flag" CHANGELOG.md > /tmp/notes.md
-      else
-        echo "Release $CI_COMMIT_TAG. See CHANGELOG.md for details." > /tmp/notes.md
-      fi
-    - |
-      ASSETS=()
+      bash -c '
+      set -euo pipefail
+      VERSION="${CI_COMMIT_TAG#v}"
+      ASSET_LINKS=()
+
+      upload() {
+        local pkg=$1 path=$2
+        local file=$(basename "$path")
+        local url="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$pkg/$VERSION/$file"
+        echo "→ $pkg/$VERSION/$file"
+        curl -sS --fail-with-body --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file "$path" "$url" >/dev/null
+        ASSET_LINKS+=("--assets-link={\"name\":\"$file\",\"url\":\"$url\",\"link_type\":\"package\"}")
+      }
+
+      # TF provider artifacts
       for f in terraform/provider-fleet/dist/*.zip \
                terraform/provider-fleet/dist/*SHA256SUMS* \
-               terraform/provider-fleet/dist/*manifest.json \
-               cmd/fleetctl/dist/*.tar.gz \
+               terraform/provider-fleet/dist/*manifest.json; do
+        [ -e "$f" ] && upload terraform-provider-fleet "$f"
+      done
+
+      # fleetctl binaries
+      for f in cmd/fleetctl/dist/*.tar.gz \
                cmd/fleetctl/dist/*.zip \
                cmd/fleetctl/dist/*SHA256SUMS*; do
-        [ -e "$f" ] && ASSETS+=("$f")
+        [ -e "$f" ] && upload fleetctl "$f"
       done
-      echo "Uploading ${#ASSETS[@]} assets to GitHub Releases for $CI_COMMIT_TAG"
-    - |
-      # Idempotent: if a release for this tag already exists, delete
-      # it first so re-running the job swaps in fresh artifacts.
-      if gh release view "$CI_COMMIT_TAG" --repo "$REPO" >/dev/null 2>&1; then
-        gh release delete "$CI_COMMIT_TAG" --repo "$REPO" --yes
+
+      # Cross-references to the other distribution channels so the
+      # release page is the one URL operators need. These are pure
+      # links — release-cli does not check that they resolve.
+      ASSET_LINKS+=("--assets-link={\"name\":\"Docker image — danielfree19/fleet-manager:$VERSION\",\"url\":\"https://hub.docker.com/r/danielfree19/fleet-manager/tags\",\"link_type\":\"image\"}")
+      ASSET_LINKS+=("--assets-link={\"name\":\"npm — @fleet-oss/sdk@$VERSION\",\"url\":\"https://www.npmjs.com/package/@fleet-oss/sdk/v/$VERSION\",\"link_type\":\"package\"}")
+
+      # Release notes from CHANGELOG.md when the matching version is present.
+      DESC="Release $CI_COMMIT_TAG. See CHANGELOG.md for details."
+      if [ -f CHANGELOG.md ] && grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+        DESC=$(awk "/^## \\[$VERSION\\]/{flag=1;next}/^## \\[/{flag=0}flag" CHANGELOG.md)
       fi
-      gh release create "$CI_COMMIT_TAG" \
-        --repo "$REPO" \
-        --title "$CI_COMMIT_TAG" \
-        --notes-file /tmp/notes.md \
-        "${ASSETS[@]}"
+
+      release-cli create \
+        --name "$CI_COMMIT_TAG" \
+        --tag-name "$CI_COMMIT_TAG" \
+        --description "$DESC" \
+        "${ASSET_LINKS[@]}"
+      '
 
 # ===========================================================================
 # Stage: mirror  (always runs on default branch + tags)
