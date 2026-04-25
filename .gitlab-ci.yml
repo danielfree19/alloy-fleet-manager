@@ -655,3 +655,117 @@ mirror:github:
     # the mirror is a true mirror. Explicit refspecs keep us from
     # leaking GitLab-internal refs (refs/pipelines/*, refs/keep-around/*).
     - git push --prune github '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+
+# ---- 7. Wiki sync (GitLab + GitHub) -------------------------------------
+#
+# Both jobs run scripts/build-wiki.sh to materialize a wiki tree from
+# docs/* + selected root files, then force the result onto the wiki
+# git repos backing each surface. Wiki edits made through the UI are
+# overwritten on the next sync — the banner on every page says so.
+#
+# Auth:
+#   GitLab — uses CI_JOB_TOKEN. Default GitLab project access lets the
+#            job token push to its own .wiki.git. If this project ever
+#            disables that ("Settings → CI/CD → Job token permissions"),
+#            swap to a Project Access Token with `write_repository`.
+#   GitHub — reuses the existing GITHUB_DEPLOY_KEY (the mirror key).
+#            GitHub deploy keys with write access on a repo can also
+#            push to that repo's .wiki.git.
+#
+# Bootstrap (one-time, manual):
+#   GitLab — wiki is auto-initialized on first edit; if the clone 404s,
+#            visit `$CI_PROJECT_URL/-/wikis/home` and create any page.
+#   GitHub — Settings → Features → tick "Wikis", then Wiki tab →
+#            "Create the first page". Without this the .wiki.git repo
+#            does not exist yet and the job will fail-soft skip.
+
+wiki:sync:gitlab:
+  stage: mirror
+  image: alpine:3.20
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_TAG'
+  before_script:
+    - apk add --no-cache bash git
+  script:
+    - bash scripts/build-wiki.sh
+    - |
+      bash -c '
+      set -euo pipefail
+      WIKI_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.wiki.git"
+      tmp=$(mktemp -d)
+      if ! git clone --depth=1 "$WIKI_URL" "$tmp" 2>/tmp/clone.err; then
+        echo "✗ Cannot clone GitLab wiki:"
+        sed "s/${CI_JOB_TOKEN}/***/g" /tmp/clone.err
+        echo "Bootstrap: visit $CI_PROJECT_URL/-/wikis/home and create any page."
+        echo "(Skipping — not failing the pipeline.)"
+        exit 0
+      fi
+      find "$tmp" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+      cp -a wiki-build/. "$tmp/"
+      cd "$tmp"
+      git config user.email "ci@fleet-oss"
+      git config user.name "Fleet OSS CI"
+      git add -A
+      if git diff --cached --quiet; then
+        echo "✓ wiki already up to date."
+        exit 0
+      fi
+      git commit -m "wiki: sync from $CI_COMMIT_SHORT_SHA"
+      git push origin HEAD
+      echo "✓ pushed to GitLab wiki."
+      '
+
+wiki:sync:github:
+  stage: mirror
+  image: alpine:3.20
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_TAG'
+  before_script:
+    - apk add --no-cache bash git openssh-client
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - |
+      if [ -z "${GITHUB_DEPLOY_KEY:-}" ] || [ -z "${GITHUB_MIRROR_URL:-}" ]; then
+        echo "GitHub mirror not configured (GITHUB_DEPLOY_KEY / GITHUB_MIRROR_URL missing); skipping wiki sync."
+        exit 0
+      fi
+    - echo "$GITHUB_DEPLOY_KEY" | base64 -d > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - bash scripts/build-wiki.sh
+    - |
+      bash -c '
+      set -euo pipefail
+      # GITHUB_MIRROR_URL is documented as github.com/<owner>/<repo>.git;
+      # tolerate a stray https:// prefix and a missing .git suffix too.
+      mirror_path="${GITHUB_MIRROR_URL#https://}"
+      mirror_path="${mirror_path#github.com/}"
+      mirror_path="${mirror_path%.git}"
+      WIKI_URL="git@github.com:${mirror_path}.wiki.git"
+      tmp=$(mktemp -d)
+      if ! git clone --depth=1 "$WIKI_URL" "$tmp" 2>/tmp/clone.err; then
+        echo "✗ Cannot clone GitHub wiki: $WIKI_URL"
+        cat /tmp/clone.err
+        echo "Bootstrap: enable Wikis under repo Settings → Features,"
+        echo "then visit the Wiki tab and create the first page."
+        echo "(Skipping — not failing the pipeline.)"
+        exit 0
+      fi
+      find "$tmp" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+      cp -a wiki-build/. "$tmp/"
+      cd "$tmp"
+      git config user.email "ci@fleet-oss"
+      git config user.name "Fleet OSS CI"
+      git add -A
+      if git diff --cached --quiet; then
+        echo "✓ wiki already up to date."
+        exit 0
+      fi
+      git commit -m "wiki: sync from $CI_COMMIT_SHORT_SHA"
+      git push origin HEAD
+      echo "✓ pushed to GitHub wiki."
+      '

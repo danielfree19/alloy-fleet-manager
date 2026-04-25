@@ -183,6 +183,45 @@ not block the others. Re-run them individually from the GitLab UI.
   exits 0 with a "skipping" log line so it's safe to land this
   pipeline before you've configured the mirror.
 
+- **`wiki:sync:gitlab`** and **`wiki:sync:github`** — auto-publish the
+  contents of `docs/` (plus `CONTRIBUTING.md`, `SECURITY.md`,
+  `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`) to the
+  project's GitLab Wiki and the GitHub mirror's Wiki on every default-
+  branch push and every tag.
+
+  The wiki tree is built by `scripts/build-wiki.sh`, which:
+  - copies each `docs/*.md` into a flat layout (wiki page slugs have
+    no folders);
+  - rewrites `[…](docs/foo.md)` and `[…](foo.md)` into wiki-style
+    `[…](foo)` so cross-references resolve;
+  - prepends an "auto-synced from `docs/`, do not edit here" banner to
+    every page;
+  - generates `Home.md` from the README's "## Docs" section, plus
+    `_sidebar.md` (GitLab) and `_Sidebar.md` (GitHub) for navigation.
+
+  Both jobs force-overwrite the wiki repo on each push, so manual edits
+  in the wiki UI are clobbered on the next CI run — the banner warns
+  about this. To change wiki content, edit `docs/` and merge.
+
+  Auth for `wiki:sync:gitlab` uses `CI_JOB_TOKEN`, which can push to
+  the project's own `.wiki.git` by default. If you ever lock down
+  `Settings → CI/CD → Job token permissions`, swap the URL to a
+  Project Access Token with `write_repository`.
+
+  Auth for `wiki:sync:github` reuses `GITHUB_DEPLOY_KEY` (the same key
+  the mirror job uses) — GitHub deploy keys with write access can
+  push to the repo's `.wiki.git`. **One-time bootstrap on GitHub**:
+  enable Wikis under Settings → Features, then visit the Wiki tab and
+  click "Create the first page" so the `.wiki.git` repo actually
+  exists. Until that's done the job logs a "Bootstrap:" hint and
+  fail-soft skips.
+
+  Local dry-run:
+  ```bash
+  ./scripts/build-wiki.sh
+  ls wiki-build/    # 28 pages: docs/* + Home + _sidebar + a few root files
+  ```
+
 ## Local pipeline dry-runs
 
 You can sanity-check a job without pushing:

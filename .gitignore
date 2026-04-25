@@ -13,3 +13,7 @@ state/
 # them via local paths. The canonical files live at the repo root.
 cmd/fleetctl/LICENSE
 cmd/fleetctl/NOTICE
+
+# Wiki build artifact — produced by scripts/build-wiki.sh and pushed to
+# the GitLab/GitHub wikis by the wiki:sync:* CI jobs. Never committed.
+wiki-build/
