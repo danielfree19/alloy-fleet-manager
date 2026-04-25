@@ -16,6 +16,37 @@ Entries are grouped into:
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-26
+
+Patch release. v0.1.0's `release:provider:goreleaser` job failed at
+the GPG signing step because the CI runner has no TTY and gpg's
+default pinentry tried to prompt for the passphrase. The Terraform
+provider archives for v0.1.0 were never signed and never reached
+the Terraform Registry; this release ships them with a valid
+detached signature.
+
+### Fixed
+
+- **Terraform provider release: GPG signing.** The CI now writes
+  `$GPG_PASSPHRASE` into a 0600 tmp file and points goreleaser's
+  `signs.args` at it via `--passphrase-file` plus
+  `--pinentry-mode=loopback`, so signing works without a TTY.
+  argv-based `--passphrase` was deliberately avoided
+  (`/proc/<pid>/cmdline` leak).
+
+### Added
+
+- **Auto-sync `docs/` to GitLab Wiki and GitHub Wiki.**
+  Two new CI jobs (`wiki:sync:gitlab`, `wiki:sync:github`) build a
+  flat wiki tree from `docs/*` plus the root community files
+  (`CONTRIBUTING.md` etc.) on every default-branch push and tag,
+  and force-push the result to the respective `.wiki.git` repos.
+  The build script (`scripts/build-wiki.sh`) rewrites
+  `[…](docs/foo.md)` → `[…](foo)` for wiki-style slugs and adds a
+  banner pointing back to `docs/`. GitLab uses a project access
+  token (`GITLAB_WIKI_TOKEN`); GitHub reuses the existing mirror
+  deploy key. Operator instructions are in `docs/ci-cd.md`.
+
 ## [0.1.0] — 2026-04-25
 
 First public open-source release. Everything previously listed under
