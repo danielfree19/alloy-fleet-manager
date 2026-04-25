@@ -664,10 +664,13 @@ mirror:github:
 # overwritten on the next sync — the banner on every page says so.
 #
 # Auth:
-#   GitLab — uses CI_JOB_TOKEN. Default GitLab project access lets the
-#            job token push to its own .wiki.git. If this project ever
-#            disables that ("Settings → CI/CD → Job token permissions"),
-#            swap to a Project Access Token with `write_repository`.
+#   GitLab — uses a project access token (GITLAB_WIKI_TOKEN) with
+#            `write_repository` scope and Maintainer access level.
+#            CI_JOB_TOKEN cannot push to .wiki.git on this server
+#            (`403 You are not allowed to write to this project's wiki`),
+#            so a dedicated token is required. Rotate via
+#            `glab token rotate fleet-oss-wiki-sync` and pipe the new
+#            value into `glab variable update GITLAB_WIKI_TOKEN`.
 #   GitHub — reuses the existing GITHUB_DEPLOY_KEY (the mirror key).
 #            GitHub deploy keys with write access on a repo can also
 #            push to that repo's .wiki.git.
@@ -693,11 +696,17 @@ wiki:sync:gitlab:
     - |
       bash -c '
       set -euo pipefail
-      WIKI_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.wiki.git"
+      if [ -z "${GITLAB_WIKI_TOKEN:-}" ]; then
+        echo "GITLAB_WIKI_TOKEN not set; skipping GitLab wiki sync."
+        echo "Create one with: glab token create --access-level maintainer --scope write_repository --duration 360d fleet-oss-wiki-sync"
+        echo "Then upload via:  glab variable set GITLAB_WIKI_TOKEN --protected --masked --raw"
+        exit 0
+      fi
+      WIKI_URL="https://oauth2:${GITLAB_WIKI_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.wiki.git"
       tmp=$(mktemp -d)
       if ! git clone --depth=1 "$WIKI_URL" "$tmp" 2>/tmp/clone.err; then
         echo "✗ Cannot clone GitLab wiki:"
-        sed "s/${CI_JOB_TOKEN}/***/g" /tmp/clone.err
+        sed "s/${GITLAB_WIKI_TOKEN}/***/g" /tmp/clone.err
         echo "Bootstrap: visit $CI_PROJECT_URL/-/wikis/home and create any page."
         echo "(Skipping — not failing the pipeline.)"
         exit 0

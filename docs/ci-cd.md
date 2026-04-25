@@ -203,10 +203,24 @@ not block the others. Re-run them individually from the GitLab UI.
   in the wiki UI are clobbered on the next CI run — the banner warns
   about this. To change wiki content, edit `docs/` and merge.
 
-  Auth for `wiki:sync:gitlab` uses `CI_JOB_TOKEN`, which can push to
-  the project's own `.wiki.git` by default. If you ever lock down
-  `Settings → CI/CD → Job token permissions`, swap the URL to a
-  Project Access Token with `write_repository`.
+  Auth for `wiki:sync:gitlab` uses a project access token
+  (`GITLAB_WIKI_TOKEN`) with `write_repository` scope and Maintainer
+  access — `CI_JOB_TOKEN` is rejected by GitLab's wiki ACL with
+  `403 You are not allowed to write to this project's wiki`. Create
+  and upload via:
+
+  ```bash
+  glab token create --access-level maintainer --scope write_repository \
+    --duration 360d fleet-oss-wiki-sync \
+    | glab variable set GITLAB_WIKI_TOKEN --protected --masked --raw
+  ```
+
+  Rotate yearly with:
+
+  ```bash
+  glab token rotate fleet-oss-wiki-sync --duration 360d \
+    | glab variable update GITLAB_WIKI_TOKEN --protected --masked --raw
+  ```
 
   Auth for `wiki:sync:github` reuses `GITHUB_DEPLOY_KEY` (the same key
   the mirror job uses) — GitHub deploy keys with write access can
