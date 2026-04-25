@@ -489,24 +489,17 @@ release:sdk:npm:
   <<: *rules_tag_only
   before_script:
     - npm --version
-    # oathtool generates the npm 2FA OTP from NPM_TOTP_SECRET (the same
-    # base32 string your authenticator app uses). Required because the
-    # account has 2FA-on-write enabled and CI can't be interactive.
-    - apt-get update && apt-get install -y --no-install-recommends oathtool
     - |
       if [ -z "${NPM_TOKEN:-}" ]; then
         echo "✗ NPM_TOKEN is not set"; exit 1
-      fi
-      if [ -z "${NPM_TOTP_SECRET:-}" ]; then
-        echo "✗ NPM_TOTP_SECRET is not set (npm requires 2FA on publish)"; exit 1
       fi
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
   script:
     - npm ci --include=dev
     - npm run build --workspace packages/shared
     - npm run build --workspace packages/sdk
-    # The version field in packages/sdk/package.json must match the tag.
-    # If you bump one without the other this job fails fast — by design.
+    # Tag must match the package.json version. Bumping one without the
+    # other is a release-time bug; fail fast.
     - PKG_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
     - TAG_VERSION="${CI_COMMIT_TAG#v}"
     - |
@@ -514,12 +507,17 @@ release:sdk:npm:
         echo "✗ packages/sdk/package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
         exit 1
       fi
-    # Generate the OTP RIGHT BEFORE publish (TOTP window is 30s).
+    # Idempotent: a tag whose version is already on npmjs.com is a
+    # no-op. Lets us re-trigger the pipeline after an unrelated job
+    # fix without having to bump the SDK version.
+    - |
+      if npm view "@fleet-oss/sdk@$PKG_VERSION" version >/dev/null 2>&1; then
+        echo "✓ @fleet-oss/sdk@$PKG_VERSION is already on npmjs.com — skipping publish."
+        exit 0
+      fi
     # `--provenance` stays off; npm only attests provenance from a few
     # supported providers and self-hosted GitLab isn't one.
-    - |
-      OTP=$(oathtool --totp -b "$NPM_TOTP_SECRET")
-      npm publish --workspace packages/sdk --access public --otp="$OTP"
+    - npm publish --workspace packages/sdk --access public
 
 # ---- 5. GitLab Release: Generic Packages + Release entry ----------------
 #
