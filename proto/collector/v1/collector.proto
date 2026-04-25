@@ -1,0 +1,147 @@
+// Vendored from https://github.com/grafana/alloy-remote-config
+// License: Apache-2.0
+// Keep this file byte-identical to upstream so Alloy's generated client can
+// talk to us without any schema skew.
+syntax = "proto3";
+
+package collector.v1;
+
+option go_package = "github.com/grafana/alloy-remote-config/api/gen/proto/go/collector/v1;collectorv1";
+
+// GetConfigRequest is the request message to get a collector's configuration.
+// The collector's ID and any supplied attributes are used to determine which
+// pipelines to include in the configuration.
+message GetConfigRequest {
+  // (required) The ID of the collector to get the configuration for.
+  string id = 1;
+
+  // DEPRECATED. Use local_attributes instead.
+  map<string, string> attributes = 2 [deprecated=true];
+
+  // Attributes are key=value pairs that are used to determine which pipelines
+  // to include in the remote configuration.
+  map<string, string> local_attributes = 4;
+
+  // Hash is used to determine if the configuration has changed.
+  string hash = 3;
+
+  // The status of the remote config that was previously received from the Server.
+  // This field SHOULD be unset if the remote config status is unchanged since the
+  // last GetConfigRequest message.
+  RemoteConfigStatus remote_config_status = 5;
+
+  // The current effective configuration of the Collector. The effective configuration is
+  // the one that is currently used by the Collector. The effective configuration may be
+  // different from the remote configuration received from the Server earlier, e.g.
+  // because the Collector uses a local configuration instead (or in addition).
+  //
+  // This field SHOULD be unset if the effective config is unchanged since the last
+  // GetConfigRequest message.
+  EffectiveConfig effective_config = 6;
+}
+
+message RemoteConfigStatus {
+    RemoteConfigStatuses status = 1;
+
+    // Optional error message if status==FAILED.
+    string error_message = 2;
+}
+
+enum RemoteConfigStatuses {
+    // The value of status field is not set.
+    RemoteConfigStatuses_UNSET = 0;
+
+    // Remote config was successfully applied by the Collector.
+    RemoteConfigStatuses_APPLIED = 1;
+
+    // Collector is currently applying the remote config that it received earlier.
+    RemoteConfigStatuses_APPLYING = 2;
+
+    // Collector tried to apply the config received earlier, but it failed.
+    // See error_message for more details.
+    RemoteConfigStatuses_FAILED = 3;
+}
+
+message EffectiveConfig {
+    // The effective config of the Collector.
+    AgentConfigMap config_map = 1;
+}
+
+message AgentConfigMap {
+    // Map of configs. Keys are config file names or config section names.
+    // The configuration is assumed to be a collection of one or more named config files
+    // or sections.
+    // For collector that use a single config file or section the map SHOULD contain a single
+    // entry and the key may be an empty string.
+    map<string, AgentConfigFile> config_map = 1;
+}
+
+message AgentConfigFile {
+    // Config file or section body. The content, format and encoding depends on the Collector
+    // type. The content_type field may optionally describe the MIME type of the body.
+    bytes body = 1;
+
+    // Optional MIME Content-Type that describes what's in the body field, for
+    // example "text/yaml".
+    string content_type = 2;
+}
+
+// GetConfigResponse is the server->collector response message that contains the
+// collector's configuration.
+message GetConfigResponse {
+  // The full configuration for the collector.
+  string content = 1;
+
+  // hash is used to determine if the configuration has changed, and avoid
+  // sending the full configuration if it has not.
+  string hash = 2;
+
+  // not_modified is set to true if the configuration has not changed and
+  // the client should not update its configuration from the response.
+  bool not_modified = 3;
+}
+
+message RegisterCollectorRequest {
+  // (required) The ID of the collector to register.
+  string id = 1;
+
+  // DEPRECATED. Use local_attributes instead.
+  map<string, string> attributes = 2;
+
+  // The local attributes the collector uses to self-identify on registration.
+  map<string, string> local_attributes = 4;
+
+  // The name of the collector
+  string name = 3;
+}
+
+message RegisterCollectorResponse {
+}
+
+message UnregisterCollectorRequest {
+  string id = 1;
+}
+
+message UnregisterCollectorResponse {
+}
+
+// CollectorService is the service that provides remote configuration for the collector.
+// It is used to register collectors, and to fetch their configuration.
+service CollectorService {
+  // GetConfig returns the collector's configuration.
+  rpc GetConfig (GetConfigRequest) returns (GetConfigResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  };
+
+  // RegisterCollector registers the collector with the given ID and local attributes. It will
+  // update the collector's attributes if the collector is already registered and the
+  // attributes are different.
+  rpc RegisterCollector (RegisterCollectorRequest) returns (RegisterCollectorResponse) {
+    option idempotency_level = IDEMPOTENT;
+  };
+
+  // UnregisterCollector unregisters the collector with the given ID.
+  rpc UnregisterCollector (UnregisterCollectorRequest) returns (UnregisterCollectorResponse) {
+    option idempotency_level = IDEMPOTENCY_UNKNOWN;
+  };
+}

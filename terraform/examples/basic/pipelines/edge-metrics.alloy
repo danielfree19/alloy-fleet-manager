@@ -1,0 +1,10 @@
+// edge-metrics: edge-only — scrape prom-sink's own /metrics as a demo upstream target.
+prometheus.scrape "sink_metrics" {
+  targets = [{
+    "__address__"      = "prom-sink:9091",
+    "__metrics_path__" = "/metrics",
+    "job"              = "prom-sink",
+  }]
+  forward_to      = [prometheus.remote_write.sink.receiver]
+  scrape_interval = "15s"
+}

@@ -1,0 +1,17 @@
+# Terraform CLI config for developing against a locally-built provider
+# binary. Copy to dev.tfrc, edit the absolute path below, and run:
+#
+#   go build -o terraform-provider-fleet ./terraform/provider-fleet
+#   TF_CLI_CONFIG_FILE=$(pwd)/terraform/dev.tfrc terraform -chdir=terraform/examples/basic plan
+#
+# While dev_overrides is set, Terraform skips `terraform init` for matching
+# providers. That means you can iterate on Go code -> go build -> terraform
+# plan without ever touching .terraform/.
+provider_installation {
+  dev_overrides {
+    # Must be an ABSOLUTE path to the directory containing the compiled
+    # `terraform-provider-fleet` binary.
+    "fleet-oss/fleet" = "/REPLACE/WITH/ABSOLUTE/PATH/TO/fleet-managment-oss/terraform/provider-fleet"
+  }
+  direct {}
+}

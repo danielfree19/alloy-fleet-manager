@@ -1,0 +1,29 @@
+{
+  "name": "alloy-fleet-oss",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted Fleet Management for Grafana Alloy collectors (Node.js/TypeScript MVP)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:manager": "npm run dev --workspace apps/fleet-manager",
+    "dev:agent": "npm run dev --workspace apps/fleet-agent",
+    "dev:ui": "npm run dev --workspace apps/fleet-ui",
+    "migrate": "npm run migrate --workspace apps/fleet-manager",
+    "seed": "npm run seed --workspace apps/fleet-manager",
+    "start:manager": "npm run start --workspace apps/fleet-manager",
+    "start:agent": "npm run start --workspace apps/fleet-agent"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "tsx": "^4.7.2",
+    "@types/node": "^20.12.7"
+  }
+}

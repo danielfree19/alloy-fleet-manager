@@ -1,0 +1,34 @@
+# LEGACY systemd unit for the Node.js fleet-agent (REST pull model).
+# For the recommended remotecfg path you do NOT need this unit — Alloy itself
+# polls the Fleet Manager, configured via /etc/alloy/config.alloy.
+#
+# Install:
+#   sudo cp alloy-fleet-agent.service /etc/systemd/system/
+#   sudo useradd -r -s /bin/false alloy-fleet-agent
+#   sudo mkdir -p /var/lib/alloy-fleet-agent /etc/alloy-fleet-agent
+#   sudo chown alloy-fleet-agent: /var/lib/alloy-fleet-agent
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now alloy-fleet-agent
+
+[Unit]
+Description=Alloy Fleet Agent (legacy REST pull)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alloy-fleet-agent
+Group=alloy-fleet-agent
+EnvironmentFile=-/etc/alloy-fleet-agent/agent.env
+ExecStart=/usr/bin/node /usr/lib/alloy-fleet-agent/index.js
+Restart=on-failure
+RestartSec=5
+# Let the agent write /etc/alloy/config.alloy and /var/lib/alloy-fleet-agent/state.json
+ReadWritePaths=/etc/alloy /var/lib/alloy-fleet-agent
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

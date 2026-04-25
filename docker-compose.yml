@@ -1,0 +1,102 @@
+# Local development stack. Brings up:
+#   postgres              — database
+#   fleet-manager         — the API (primary remotecfg + legacy REST surfaces)
+#   alloy                 — a real Grafana Alloy instance booted with the
+#                           `remotecfg` block pointing at fleet-manager
+#                           (enabled via `--profile with-alloy`).
+#
+# Works with both `docker compose` and `podman compose`.
+# Alloy resolves the manager by service name (`fleet-manager:9090`) over the
+# compose network, so no host-loopback DNS (host.docker.internal / host.containers.internal)
+# is required.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: fleet-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - fleet_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fleet}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  fleet-manager:
+    build:
+      context: .
+      dockerfile: apps/fleet-manager/Dockerfile
+    container_name: fleet-manager
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-fleet}:${POSTGRES_PASSWORD:-fleet}@postgres:5432/${POSTGRES_DB:-fleet}
+      FLEET_MANAGER_HOST: 0.0.0.0
+      FLEET_MANAGER_PORT: 9090
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me-admin-token}
+      REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:-change-me-registration-token}
+      AGENT_BEARER_TOKEN: ${AGENT_BEARER_TOKEN:-change-me-agent-bearer-token}
+      LOG_LEVEL: info
+      NODE_ENV: production
+    ports:
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: fleet-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      # Alloy reaches the manager by its compose service name. Override with
+      # ALLOY_FLEET_MANAGER_URL only if you want Alloy in compose to talk to
+      # a manager running on the HOST (e.g. `npm run dev:manager`); on Podman
+      # macOS set it to http://host.containers.internal:9090, on Docker
+      # Desktop to http://host.docker.internal:9090.
+      FLEET_MANAGER_URL: ${ALLOY_FLEET_MANAGER_URL:-http://fleet-manager:9090}
+      FLEET_AGENT_BEARER_TOKEN: ${AGENT_BEARER_TOKEN:-change-me-agent-bearer-token}
+      ALLOY_COLLECTOR_ID: local-alloy
+      ALLOY_ENV: dev
+      ALLOY_ROLE: edge
+    ports:
+      - "12345:12345"
+    volumes:
+      - ./examples/bootstrap.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - fleet-manager
+    profiles: ["with-alloy"]
+
+  # Dummy remote_write sink. A real Prometheus instance started with
+  # `--web.enable-remote-write-receiver` so Alloy can POST OpenMetrics to
+  # http://prom-sink:9091/api/v1/write and we can curl the stored data back
+  # at http://localhost:9091 to prove the pipeline is end-to-end working.
+  prom-sink:
+    image: prom/prometheus:latest
+    container_name: fleet-prom-sink
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --web.listen-address=:9091
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=6h
+    ports:
+      - "9091:9091"
+    volumes:
+      - ./examples/prom-sink.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_sink_data:/prometheus
+    profiles: ["with-alloy"]
+
+volumes:
+  fleet_pgdata:
+  alloy_data:
+  prom_sink_data:

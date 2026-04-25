@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Semantic color tokens. We keep a single dark palette for MVP — it's what
+ * operators running Grafana + Alloy dashboards expect, and it avoids the
+ * light/dark toggle rabbit hole. Tweak these and every component re-themes.
+ */
+:root {
+  --fleet-bg: 9 11 16;
+  --fleet-surface: 17 20 28;
+  --fleet-border: 31 37 51;
+  --fleet-muted: 130 140 160;
+  --fleet-text: 226 232 240;
+  --fleet-accent: 120 160 255;
+  --fleet-accent-soft: 30 48 86;
+  --fleet-ok: 74 222 128;
+  --fleet-warn: 251 191 36;
+  --fleet-danger: 248 113 113;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--fleet-bg));
+  color: rgb(var(--fleet-text));
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Scrollbar polish — dark, subtle. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--fleet-border));
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--fleet-muted) / 0.5);
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium
+           border border-border bg-surface text-text transition
+           hover:bg-border/60 hover:border-muted/40
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply border-accent/40 bg-accent-soft/80 text-accent
+           hover:bg-accent-soft hover:border-accent/70;
+  }
+  .btn-danger {
+    @apply border-danger/30 bg-danger/10 text-danger
+           hover:bg-danger/20 hover:border-danger/60;
+  }
+  .input {
+    @apply w-full rounded-md border border-border bg-bg px-3 py-1.5 text-sm
+           text-text placeholder:text-muted
+           focus:outline-none focus:border-accent/70 focus:ring-1 focus:ring-accent/40;
+  }
+  .card {
+    @apply rounded-lg border border-border bg-surface;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+}

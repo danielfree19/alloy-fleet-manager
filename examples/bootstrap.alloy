@@ -1,0 +1,47 @@
+// Minimal bootstrap config for an Alloy instance that pulls its real config
+// from the self-hosted Fleet Manager via the `remotecfg` block.
+//
+// Place this file at /etc/alloy/config.alloy on every host/pod you want the
+// Fleet Manager to control.
+//
+// Per the Alloy docs:
+//   https://grafana.com/docs/alloy/next/reference/config-blocks/remotecfg/
+//
+// The attributes you set here are what the Fleet Manager uses to decide
+// which pipelines apply to this collector (see `pipelines.selector`).
+
+// Alloy treats the config delivered by the Fleet Manager as a MODULE.
+// Service-level blocks like `logging`, `tracing`, `http`, and `remotecfg`
+// are only valid in the ROOT config — not inside a module. So anything of
+// that kind stays here, and pipelines on the server must contain only
+// components (e.g. prometheus.exporter, otelcol.*, loki.*).
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+remotecfg {
+  // URL of the Fleet Manager API (the root; paths like
+  // /collector.v1.CollectorService/GetConfig are appended by Alloy).
+  url = sys.env("FLEET_MANAGER_URL")
+
+  // Shared bearer token (matches AGENT_BEARER_TOKEN on the server).
+  // Use `bearer_token_file` in production so the secret isn't in-config.
+  bearer_token = sys.env("FLEET_AGENT_BEARER_TOKEN")
+
+  // Stable collector identity. Defaults to hostname — override with
+  // something more stable (e.g. a persistent UUID) if your hostnames change.
+  id = coalesce(sys.env("ALLOY_COLLECTOR_ID"), constants.hostname)
+
+  // Free-form attributes used by the Fleet Manager to match pipelines.
+  // These are the keys you put in your pipeline.selector JSON.
+  //
+  // NOTE: temporarily hardcoded while we validate the end-to-end attribute
+  // path. Once confirmed we'll switch to `coalesce(sys.env(...), default)`.
+  attributes = {
+    "env"  = "dev",
+    "role" = "edge",
+  }
+
+  poll_frequency = "30s"
+}

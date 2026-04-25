@@ -1,0 +1,96 @@
+# Minimal example: Grafana Alloy as a DaemonSet that pulls its config from
+# a self-hosted Fleet Manager via the `remotecfg` block. No custom agent
+# container — Alloy is the agent.
+#
+# Before applying:
+#   1. Build + push the fleet-manager image and deploy it (not shown here).
+#   2. kubectl create ns observability
+#   3. kubectl -n observability create secret generic alloy-fleet-bearer \
+#        --from-literal=token='<AGENT_BEARER_TOKEN>'
+#   4. kubectl -n observability apply -f examples/k8s/alloy-daemonset.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-bootstrap-config
+  namespace: observability
+data:
+  config.alloy: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    remotecfg {
+      url          = sys.env("FLEET_MANAGER_URL")
+      bearer_token = sys.env("FLEET_AGENT_BEARER_TOKEN")
+      id           = sys.env("HOSTNAME")
+      attributes = {
+        "env"       = sys.env("ALLOY_ENV"),
+        "role"      = sys.env("ALLOY_ROLE"),
+        "namespace" = sys.env("POD_NAMESPACE"),
+      }
+      poll_frequency = "30s"
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alloy
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alloy
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:latest
+          args:
+            - run
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
+            - /etc/alloy/config.alloy
+          env:
+            - name: FLEET_MANAGER_URL
+              value: "http://fleet-manager.observability.svc.cluster.local:9090"
+            - name: FLEET_AGENT_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alloy-fleet-bearer
+                  key: token
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ALLOY_ENV
+              value: "prod"
+            - name: ALLOY_ROLE
+              value: "edge"
+          ports:
+            - name: http
+              containerPort: 12345
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: alloy-bootstrap-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: observability

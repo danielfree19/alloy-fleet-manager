@@ -1,0 +1,11 @@
+# Minimal Prometheus config for the local dummy remote_write sink.
+# - Alloy POSTs samples to /api/v1/write (remote_write receiver is enabled
+#   via the --web.enable-remote-write-receiver flag in docker-compose.yml).
+# - No scrape_configs: we only want Prometheus as a passive receiver so we
+#   can curl http://localhost:9091/api/v1/query?query=up and prove the fleet
+#   pipeline is delivering data end-to-end.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs: []

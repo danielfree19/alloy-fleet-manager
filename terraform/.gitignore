@@ -1,0 +1,14 @@
+# Terraform local artifacts
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/*.tfplan
+**/crash.log
+**/crash.*.log
+
+# Built provider binary (produced by `make build`)
+provider-fleet/terraform-provider-fleet
+
+# Personal dev_overrides config
+dev.tfrc
