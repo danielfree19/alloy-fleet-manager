@@ -25,6 +25,13 @@
 default:
   image: node:20-bookworm
   interruptible: true
+  # Pin every job to the Docker-executor runner pool. Shell runners on
+  # this instance silently ignore `image:` and run scripts on the host —
+  # which doesn't have node/go/docker/yamllint/goreleaser, so every job
+  # would fail with `command not found`. Docker runners must carry the
+  # `docker` tag.
+  tags:
+    - docker
   # On a fresh clone GitLab pulls the full history, which is wasteful for
   # most jobs. Shallow clones speed up MR pipelines materially.
   before_script:
