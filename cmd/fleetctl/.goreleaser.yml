@@ -1,0 +1,72 @@
+# GoReleaser config for fleetctl, the Go CLI companion.
+#
+# Produces multi-OS / multi-arch archives + SHA256 checksums on every
+# tag. Artifacts are uploaded by the GitLab CI release job to the
+# project's Generic Package registry, where users can `curl | tar`
+# them by version. See docs/release.md for the install one-liners.
+#
+# Local dry-run:
+#
+#   ( cd cmd/fleetctl && goreleaser release --snapshot --clean )
+
+version: 2
+
+project_name: fleetctl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: fleetctl
+    main: .
+    binary: fleetctl
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}'
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+      - '386'
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: windows
+        goarch: '386'
+
+archives:
+  - id: fleetctl-archive
+    formats: ['tar.gz']
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    # Paths are resolved relative to the goreleaser working directory
+    # (cmd/fleetctl). We hop up to the repo root for the canonical
+    # LICENSE rather than maintaining a duplicate.
+    files:
+      - src: ../../LICENSE
+        dst: LICENSE
+      - src: ../../NOTICE
+        dst: NOTICE
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+release:
+  disable: true
+
+snapshot:
+  version_template: '0.0.0-dev-{{ .Commit }}'
+
+changelog:
+  disable: true

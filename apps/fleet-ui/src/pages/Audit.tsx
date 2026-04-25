@@ -40,9 +40,31 @@ export function Audit() {
             onChange={(e) => setAction(e.target.value as FilterAction)}
           >
             <option value="">All actions</option>
-            <option value="pipeline.create">pipeline.create</option>
-            <option value="pipeline.update">pipeline.update</option>
-            <option value="pipeline.delete">pipeline.delete</option>
+            <optgroup label="Pipelines">
+              <option value="pipeline.create">pipeline.create</option>
+              <option value="pipeline.update">pipeline.update</option>
+              <option value="pipeline.delete">pipeline.delete</option>
+            </optgroup>
+            <optgroup label="Auth">
+              <option value="auth.login">auth.login</option>
+              <option value="auth.logout">auth.logout</option>
+              <option value="auth.password.change">auth.password.change</option>
+            </optgroup>
+            <optgroup label="Users">
+              <option value="user.create">user.create</option>
+              <option value="user.update">user.update</option>
+              <option value="user.delete">user.delete</option>
+              <option value="user.password.reset">user.password.reset</option>
+            </optgroup>
+            <optgroup label="Roles">
+              <option value="role.create">role.create</option>
+              <option value="role.update">role.update</option>
+              <option value="role.delete">role.delete</option>
+            </optgroup>
+            <optgroup label="API tokens">
+              <option value="token.create">token.create</option>
+              <option value="token.revoke">token.revoke</option>
+            </optgroup>
           </select>
         </div>
         <div className="grow min-w-[220px]">

@@ -84,3 +84,41 @@ output "applied_collectors" {
     c.id if c.last_status == "APPLIED"
   ]
 }
+
+# ---------------------------------------------------------------------------
+# Identity / RBAC — per-Alloy api token issuance.
+#
+# This block shows the recommended pattern for replacing the legacy shared
+# AGENT_BEARER_TOKEN with one bearer per collector. Each Alloy instance gets
+# a token bound to the built-in `agent` role (only `collectors.poll`).
+#
+# To run this section, you need a manager build that includes the
+# `collectors.poll` permission (the migration ships built-in). For older
+# managers, omit these resources and keep using AGENT_BEARER_TOKEN.
+
+# Look up the built-in role ids by name. Refreshed on every plan, so newly
+# added custom roles are visible immediately.
+data "fleet_roles" "all" {}
+
+# A service-account user that owns the per-host token. The password is set
+# but never used — the user only ever authenticates via the api token below.
+resource "fleet_user" "edge_host_01" {
+  email    = "edge-host-01@fleet.local"
+  name     = "edge-host-01"
+  password = "rotate-me-then-forget" # never used at runtime; keep out of VCS
+  role_ids = [data.fleet_roles.all.by_name["agent"]]
+}
+
+resource "fleet_api_token" "edge_host_01" {
+  name     = "edge-host-01"
+  user_id  = fleet_user.edge_host_01.id
+  role_ids = [data.fleet_roles.all.by_name["agent"]]
+}
+
+# Plaintext is only ever returned ONCE (on Create). Pipe it into your secret
+# store / Helm values / cloud-init template via a sensitive output.
+output "edge_host_01_token" {
+  description = "Bearer for /etc/alloy/bootstrap.alloy on edge-host-01. Treat as secret."
+  value       = fleet_api_token.edge_host_01.token
+  sensitive   = true
+}

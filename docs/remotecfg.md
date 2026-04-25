@@ -33,7 +33,32 @@ Content negotiation:
 - `Content-Type: application/proto` — protobuf binary (Alloy's default)
 - `Content-Type: application/json` — Connect JSON (handy for curl / debugging)
 
-Auth: `Authorization: Bearer <AGENT_BEARER_TOKEN>` on every request.
+### Auth
+
+Two accepted bearer formats — the manager tries them in this order:
+
+1. **Legacy shared agent token.** `Authorization: Bearer <AGENT_BEARER_TOKEN>`.
+   The single shared env var that has always worked. Fastest path
+   (timing-safe string compare; no DB lookup). Recommended for the
+   simplest deployments and for back-compat with existing fleets.
+
+2. **Per-Alloy `fmt_…` API token with the `agent` role.**
+   `Authorization: Bearer fmt_<prefix>_<secret>`. The token's role(s)
+   must include `collectors.poll`; the built-in `agent` role grants
+   exactly that and nothing else, so:
+
+   - Mint one in the UI: *Settings → API tokens → New token*, pick
+     the `agent` role, copy the secret once.
+   - Hand it to the Alloy instance via `bearer_token = sys.env(...)`.
+   - Revoke per-collector from the UI when a host is decommissioned.
+   - The manager's request log attributes every poll to that token's
+     owner; `api_tokens.last_used_at` shows liveness.
+
+   Polls are **not** written to the audit log (~30s cadence × N
+   collectors would dwarf everything else); use the request log and
+   `last_used_at` instead.
+
+Either path produces a 200; failing both is a 401.
 
 The `.proto` is vendored verbatim at
 [`proto/collector/v1/collector.proto`](../proto/collector/v1/collector.proto).

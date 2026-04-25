@@ -96,6 +96,8 @@ func (p *fleetProvider) Configure(ctx context.Context, req provider.ConfigureReq
 func (p *fleetProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewPipelineResource,
+		NewUserResource,
+		NewApiTokenResource,
 	}
 }
 
@@ -104,5 +106,6 @@ func (p *fleetProvider) DataSources(_ context.Context) []func() datasource.DataS
 		NewPipelineDataSource,
 		NewPipelinesDataSource,
 		NewCollectorsDataSource,
+		NewRolesDataSource,
 	}
 }

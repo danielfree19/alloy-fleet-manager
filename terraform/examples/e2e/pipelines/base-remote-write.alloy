@@ -1,0 +1,9 @@
+// base-remote-write: fan-in receiver every other pipeline forwards into.
+// Selector is empty so this applies fleet-wide. Without it, no metrics
+// reach the sink and the e2e test will fail at the prom-sink assertion
+// step.
+prometheus.remote_write "sink" {
+  endpoint {
+    url = "http://prom-sink:9091/api/v1/write"
+  }
+}

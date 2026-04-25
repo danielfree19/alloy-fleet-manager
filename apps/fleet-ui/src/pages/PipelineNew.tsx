@@ -5,6 +5,9 @@ import { PipelineForm, type PipelineFormValue } from "@/components/PipelineForm"
 import { createPipeline } from "@/api/pipelines";
 import { getCatalogTemplate } from "@/api/catalog";
 import { ApiError } from "@/api/client";
+import { toast } from "@/store/toasts";
+import { invalidateCache } from "@/store/cache";
+import { PIPELINES_CACHE_KEY } from "@/pages/Pipelines";
 import type { CatalogTemplate } from "@/api/types";
 
 const EMPTY: PipelineFormValue = {
@@ -66,6 +69,14 @@ export function PipelineNew() {
     setApiError(null);
     try {
       const p = await createPipeline(v);
+      invalidateCache(PIPELINES_CACHE_KEY);
+      // Inline error banner stays for hard failures; success is
+      // surfaced via a toast since the user has just been navigated
+      // away from the form they were standing on.
+      toast.success(
+        `Pipeline "${p.name}" created`,
+        template ? `Installed from template "${template.name}".` : undefined,
+      );
       navigate(`/pipelines/${p.id}`);
     } catch (err) {
       if (err instanceof ApiError) {

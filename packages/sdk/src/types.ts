@@ -67,17 +67,58 @@ export interface UpdatePipelineInput {
   content?: string;
 }
 
-export type AuditAction = "pipeline.create" | "pipeline.update" | "pipeline.delete";
+export type AuditAction =
+  // Pipelines
+  | "pipeline.create"
+  | "pipeline.update"
+  | "pipeline.delete"
+  // Identity / RBAC
+  | "auth.login"
+  | "auth.logout"
+  | "auth.password.change"
+  | "user.create"
+  | "user.update"
+  | "user.delete"
+  | "user.password.reset"
+  | "role.create"
+  | "role.update"
+  | "role.delete"
+  | "token.create"
+  | "token.revoke"
+  // SSO (Phase 2)
+  | "auth.sso.login"
+  | "auth.sso.rejected"
+  | "auth.sso.role_sync"
+  | "sso.provider.create"
+  | "sso.provider.update"
+  | "sso.provider.delete"
+  | "sso.provider.test"
+  | "sso.user_link"
+  | "sso.user_unlink";
+
+export type AuditTargetKind =
+  | "pipeline"
+  | "user"
+  | "role"
+  | "api_token"
+  | "sso_provider";
 
 export interface AuditEvent {
   id: string;
   created_at: string;
   actor: string;
   action: AuditAction;
-  target_kind: string;
+  /** Plain text on the wire so the SDK keeps working when the manager adds a new kind. */
+  target_kind: AuditTargetKind | string;
   target_id: string | null;
   target_name: string | null;
   metadata: Record<string, unknown>;
+  // Structured actor columns added with the identity migration. Older
+  // pre-identity rows leave them null.
+  actor_kind?: "env_token" | "user" | "api_token" | null;
+  actor_user_id?: string | null;
+  actor_email?: string | null;
+  actor_token_id?: string | null;
 }
 
 export interface ListAuditFilter {
@@ -118,4 +159,137 @@ export interface CatalogTemplate extends CatalogTemplateSummary {
 export interface CatalogListResponse {
   sources: string[];
   templates: CatalogTemplateSummary[];
+}
+
+// ---------------------------------------------------------------------------
+// Identity / RBAC
+// ---------------------------------------------------------------------------
+//
+// Mirrors the manager's `auth/permissions.ts` and `routes/users.ts` /
+// `routes/tokens.ts` shapes. Strings (not enums) for forward-compat: the
+// SDK should keep working when the manager adds a permission.
+
+/**
+ * Canonical permission strings recognized by the manager today. Open union
+ * (`(string & {})`) so callers can hold permissions added in newer manager
+ * versions without us shipping a new SDK release.
+ */
+export type Permission =
+  | "pipelines.read"
+  | "pipelines.create"
+  | "pipelines.update"
+  | "pipelines.delete"
+  | "collectors.read"
+  | "collectors.poll"
+  | "catalog.read"
+  | "audit.read"
+  | "users.read"
+  | "users.write"
+  | "tokens.read"
+  | "tokens.write"
+  | "sso.read"
+  | "sso.write"
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {});
+
+/** Built-in roles shipped by the manager. Custom roles use arbitrary names. */
+export type BuiltinRoleName = "admin" | "editor" | "viewer" | "agent";
+
+export interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  builtin: boolean;
+  permissions: Permission[];
+}
+
+export interface CreateRoleInput {
+  name: string;
+  description?: string | null;
+  permissions: Permission[];
+}
+
+export interface UpdateRoleInput {
+  description?: string | null;
+  permissions?: Permission[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  disabled: boolean;
+  created_at: string;
+  updated_at: string;
+  roles: Pick<Role, "id" | "name">[];
+}
+
+export interface CreateUserInput {
+  email: string;
+  name?: string | null;
+  password: string;
+  role_ids: string[];
+  disabled?: boolean;
+}
+
+export interface UpdateUserInput {
+  name?: string | null;
+  disabled?: boolean;
+  role_ids?: string[];
+}
+
+/**
+ * The "who am I" reply from `/auth/me`. `kind` reflects how the caller
+ * authenticated to *this* request — env-token actors (the legacy
+ * `ADMIN_TOKEN`) have no `userId`.
+ */
+export interface MeResponse {
+  kind: "env_token" | "user" | "api_token";
+  userId: string | null;
+  email: string | null;
+  permissions: Permission[];
+  roles: string[];
+  tokenId?: string | null;
+}
+
+/** A row in `GET /tokens` (or `/users/:id/tokens`). Plaintext is never returned here. */
+export interface ApiTokenSummary {
+  id: string;
+  user_id: string;
+  name: string;
+  token_prefix: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  roles: Pick<Role, "id" | "name">[];
+}
+
+export interface CreateApiTokenInput {
+  name: string;
+  /** Owner of the new token. Required when the caller is an env-token actor. */
+  user_id?: string;
+  role_ids: string[];
+  /** RFC3339; omit for non-expiring. */
+  expires_at?: string | null;
+}
+
+/**
+ * `POST /tokens` is the *only* place plaintext is ever returned, and only
+ * once. Persist `token` to your secret store immediately.
+ *
+ * The wire shape is intentionally nested:
+ *
+ * ```json
+ * { "token": "fmt_…", "api_token": { "id": "…", "user_id": "…", … } }
+ * ```
+ *
+ * Token-vs-metadata stays visually obvious in HTTP traces and audit logs.
+ * Earlier revisions of this type extended `ApiTokenSummary` directly and
+ * silently produced `undefined` ids on the SDK side; do not collapse it
+ * back to a flat shape.
+ */
+export interface CreateApiTokenResponse {
+  token: string;
+  api_token: ApiTokenSummary;
 }

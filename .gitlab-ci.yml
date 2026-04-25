@@ -1,0 +1,538 @@
+# GitLab CI/CD pipeline for the Alloy Fleet Manager (OSS) project.
+#
+# GitLab is the source of truth. GitHub (https://github.com/fleet-oss/...)
+# is a read-only mirror updated by the `mirror:github` job below on every
+# push to a protected branch and on every tag.
+#
+# The pipeline is structured so that:
+#   * fast feedback (lint, typecheck, build, unit) runs on every MR and
+#     every push to a non-tag ref;
+#   * the e2e-terraform.sh smoke runs only on `main` and on tags so MR
+#     time-to-green stays low;
+#   * release artifacts (npm, terraform provider, fleetctl, docker) only
+#     publish when a version tag (`v*`) is pushed.
+#
+# Conventions:
+#   * Variables ending `_TOKEN` / `_KEY` / `_PASSPHRASE` are CI secrets,
+#     defined under Settings → CI/CD → Variables. They are listed in
+#     `docs/ci-cd.md`.
+#   * `release/*` is reserved for tag-triggered jobs.
+#   * `interruptible: true` on every non-release job lets new pushes
+#     auto-cancel stale runs.
+
+# We pin the default image — most jobs use Node 20 — and override for
+# Go / docker / terraform jobs that need a different toolchain.
+default:
+  image: node:20-bookworm
+  interruptible: true
+  # On a fresh clone GitLab pulls the full history, which is wasteful for
+  # most jobs. Shallow clones speed up MR pipelines materially.
+  before_script:
+    - node --version
+    - npm --version
+
+# ---------------------------------------------------------------------------
+# Stages run sequentially; jobs within a stage run in parallel.
+# ---------------------------------------------------------------------------
+stages:
+  - lint
+  - build
+  - test
+  - smoke
+  - release
+  - mirror
+
+# ---------------------------------------------------------------------------
+# Globals
+# ---------------------------------------------------------------------------
+variables:
+  # Reproducible installs everywhere.
+  npm_config_cache: "$CI_PROJECT_DIR/.npm-cache"
+  GOFLAGS: "-mod=readonly"
+  # Provider Go module path — used by the goreleaser job and any Go-side
+  # caching key. Kept here so changing the layout requires updating one
+  # place.
+  PROVIDER_DIR: "terraform/provider-fleet"
+  FLEETCTL_DIR: "cmd/fleetctl"
+
+# Cache npm and the workspace's node_modules across jobs in the same
+# pipeline. We DON'T cache `dist/` — that should always be a fresh build
+# from the matching source.
+.cache_node: &cache_node
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm-cache/
+      - node_modules/
+      - apps/*/node_modules/
+      - packages/*/node_modules/
+    policy: pull-push
+
+# Same idea for the two Go modules. The cache key is per-module so we don't
+# invalidate the provider when only fleetctl moves.
+.cache_go_provider: &cache_go_provider
+  cache:
+    key:
+      files:
+        - terraform/provider-fleet/go.sum
+    paths:
+      - .go-cache-provider/
+    policy: pull-push
+
+.cache_go_fleetctl: &cache_go_fleetctl
+  cache:
+    key:
+      files:
+        - cmd/fleetctl/go.sum
+    paths:
+      - .go-cache-fleetctl/
+    policy: pull-push
+
+# Reusable rules — keep these in one place so the matrix doesn't drift.
+.rules_mr_or_default_branch: &rules_mr_or_default_branch
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_TAG'
+
+.rules_default_branch_or_tag: &rules_default_branch_or_tag
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_TAG'
+
+.rules_tag_only: &rules_tag_only
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/'
+
+.rules_nightly_or_tag: &rules_nightly_or_tag
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $NIGHTLY == "true"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/'
+
+# ===========================================================================
+# Stage: lint
+# ===========================================================================
+
+# Verify every commit on this MR carries a Signed-off-by trailer (the
+# Developer Certificate of Origin, see CONTRIBUTING.md). This is a
+# *guard*, not a fixer — we never rewrite contributor commits in CI.
+lint:dco:
+  stage: lint
+  needs: []
+  rules:
+    # Only run on MR pipelines — `git log $base..HEAD` makes no sense on
+    # a single-commit push to main.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - |
+      set -euo pipefail
+      base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-origin/$CI_DEFAULT_BRANCH}"
+      missing=0
+      while read -r sha; do
+        if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+@.+>$'; then
+          echo "✗ commit $sha is missing a Signed-off-by trailer"
+          missing=$((missing+1))
+        fi
+      done < <(git rev-list "$base..HEAD")
+      if [ "$missing" -gt 0 ]; then
+        echo
+        echo "Add a sign-off with: git commit --amend -s   (or  git rebase -i ... and sign each)"
+        exit 1
+      fi
+      echo "✓ all commits carry Signed-off-by"
+
+# Linter pass for the YAML files we ship to operators (compose, sso
+# example, github actions if any). Catches indentation goofs early.
+lint:yaml:
+  stage: lint
+  image: cytopia/yamllint:latest
+  needs: []
+  <<: *rules_mr_or_default_branch
+  before_script: []
+  script:
+    - yamllint -s -c .yamllint.yml .
+
+# ===========================================================================
+# Stage: build
+# ===========================================================================
+
+build:node:
+  stage: build
+  <<: *cache_node
+  <<: *rules_mr_or_default_branch
+  script:
+    - npm ci --include=dev
+    - npm run build --workspace packages/shared
+    - npm run typecheck
+    - npm run build
+  artifacts:
+    name: "node-dist-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - apps/fleet-manager/dist/
+      - apps/fleet-ui/dist/
+      - apps/fleet-agent/dist/
+      - packages/shared/dist/
+      - packages/sdk/dist/
+    expire_in: 1 week
+
+build:provider:
+  stage: build
+  image: golang:1.22-bookworm
+  <<: *cache_go_provider
+  <<: *rules_mr_or_default_branch
+  before_script:
+    - go version
+  script:
+    - cd $PROVIDER_DIR
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-provider go vet ./...
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-provider go build -o terraform-provider-fleet .
+  artifacts:
+    name: "provider-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - terraform/provider-fleet/terraform-provider-fleet
+    expire_in: 1 week
+
+build:fleetctl:
+  stage: build
+  image: golang:1.22-bookworm
+  <<: *cache_go_fleetctl
+  <<: *rules_mr_or_default_branch
+  before_script:
+    - go version
+  script:
+    - cd $FLEETCTL_DIR
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-fleetctl go vet ./...
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-fleetctl go build -o fleetctl .
+  artifacts:
+    name: "fleetctl-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - cmd/fleetctl/fleetctl
+    expire_in: 1 week
+
+# ===========================================================================
+# Stage: test
+# ===========================================================================
+
+# Boots the manager against an ephemeral postgres in a sibling service
+# container, runs migrations + seed, hits /health. Cheap (~90s) and
+# catches the vast majority of "shipped a broken migration" regressions.
+test:manager:smoke-boot:
+  stage: test
+  needs: ["build:node"]
+  <<: *cache_node
+  <<: *rules_mr_or_default_branch
+  services:
+    - name: postgres:15-alpine
+      alias: postgres
+      variables:
+        POSTGRES_USER: fleet
+        POSTGRES_PASSWORD: fleet
+        POSTGRES_DB: fleet
+  variables:
+    DATABASE_URL: "postgres://fleet:fleet@postgres:5432/fleet"
+    FLEET_MANAGER_HOST: "0.0.0.0"
+    FLEET_MANAGER_PORT: "9090"
+    ADMIN_TOKEN: "ci-admin-token"
+    REGISTRATION_TOKEN: "ci-registration-token"
+    AGENT_BEARER_TOKEN: "ci-agent-token"
+    SESSION_COOKIE_SECRET: "ci-cookie-secret-32bytes-or-more-padding"
+    BOOTSTRAP_ADMIN_EMAIL: "ci@example.com"
+    BOOTSTRAP_ADMIN_PASSWORD: "ci-bootstrap-pw"
+    NODE_ENV: "production"
+  script:
+    - npm ci --include=dev
+    - npm run build --workspace packages/shared
+    - npm run build --workspace apps/fleet-manager
+    - npm run migrate
+    - npm run seed
+    - node apps/fleet-manager/dist/index.js &
+    - MANAGER_PID=$!
+    - |
+      # Wait up to 60s for /health to flip to 200.
+      for i in $(seq 1 30); do
+        if curl -sf -m 2 "http://127.0.0.1:9090/health" >/dev/null; then
+          echo "✓ manager healthy"
+          break
+        fi
+        sleep 2
+      done
+      if ! curl -sf -m 2 "http://127.0.0.1:9090/health" >/dev/null; then
+        echo "✗ manager did not become healthy"
+        kill $MANAGER_PID 2>/dev/null || true
+        exit 1
+      fi
+    - |
+      # Spot-check the public auth provider list endpoint — proves the
+      # SSO loader didn't blow up at boot.
+      curl -sf "http://127.0.0.1:9090/auth/providers" >/dev/null
+    - kill $MANAGER_PID 2>/dev/null || true
+
+test:provider:unit:
+  stage: test
+  image: golang:1.22-bookworm
+  needs: ["build:provider"]
+  <<: *cache_go_provider
+  <<: *rules_mr_or_default_branch
+  script:
+    - cd $PROVIDER_DIR
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-provider go test ./... -count=1 -timeout 5m
+
+test:fleetctl:unit:
+  stage: test
+  image: golang:1.22-bookworm
+  needs: ["build:fleetctl"]
+  <<: *cache_go_fleetctl
+  <<: *rules_mr_or_default_branch
+  script:
+    - cd $FLEETCTL_DIR
+    - GOCACHE=$CI_PROJECT_DIR/.go-cache-fleetctl go test ./... -count=1 -timeout 5m
+
+# ===========================================================================
+# Stage: smoke
+# ===========================================================================
+#
+# `scripts/e2e-terraform.sh` brings up the full compose stack (postgres
+# + manager + a real Alloy + prom-sink), terraform applies, verifies
+# pipelines arrive at the agent, the agent token works on remotecfg,
+# the legacy bearer still works, and prom-sink receives samples.
+#
+# We only run this on:
+#   * the default branch (post-merge);
+#   * tags (release gating);
+#   * the nightly schedule (catches drift in upstream alloy/postgres).
+#
+# Why it lives in its own stage: it needs Docker-in-Docker and is
+# materially slower (~10–15 min) than the node/go test jobs.
+
+smoke:e2e-terraform:
+  stage: smoke
+  image: docker:25
+  services:
+    - docker:25-dind
+  needs: []
+  <<: *rules_nightly_or_tag
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://docker:2375"
+    # Match the defaults in scripts/e2e-terraform.sh; CI already controls
+    # the host so we don't override them here.
+    ADMIN_TOKEN: "change-me-admin-token"
+    AGENT_BEARER_TOKEN: "change-me-agent-bearer-token"
+  before_script:
+    - apk add --no-cache bash curl jq go terraform docker-cli docker-cli-compose npm nodejs
+    - docker info
+  script:
+    # The e2e script auto-detects `docker compose`.
+    - bash scripts/e2e-terraform.sh
+  artifacts:
+    when: on_failure
+    paths:
+      - /tmp/e2e-getconfig.json
+      - /tmp/e2e-getconfig-legacy.json
+    expire_in: 1 week
+
+# ===========================================================================
+# Stage: release  (tag-only)
+# ===========================================================================
+#
+# Triggered by `git push origin vX.Y.Z`. Each job is independent — a
+# failure to publish to npm does not block the docker push, and vice
+# versa. Re-run a failed job in isolation from the GitLab UI.
+
+# ---- 1. Multi-arch fleet-manager docker image ----------------------------
+
+release:docker:fleet-manager:
+  stage: release
+  image: docker:25
+  services:
+    - docker:25-dind
+  needs: []
+  <<: *rules_tag_only
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_BUILDKIT: "1"
+    IMAGE: "$CI_REGISTRY_IMAGE/fleet-manager"
+  before_script:
+    - apk add --no-cache git
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # If DOCKERHUB_USERNAME is set we ALSO mirror to Docker Hub. Optional;
+    # fail-soft so a missing secret doesn't break the GitLab Registry push.
+    - |
+      if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      fi
+    - docker buildx create --use --name fleet-builder
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - |
+      TAGS=(
+        "--tag" "$IMAGE:$VERSION"
+        "--tag" "$IMAGE:latest"
+      )
+      if [ -n "${DOCKERHUB_USERNAME:-}" ]; then
+        TAGS+=(
+          "--tag" "$DOCKERHUB_USERNAME/fleet-manager:$VERSION"
+          "--tag" "$DOCKERHUB_USERNAME/fleet-manager:latest"
+        )
+      fi
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --file apps/fleet-manager/Dockerfile \
+        --label "org.opencontainers.image.source=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" \
+        --label "org.opencontainers.image.version=$VERSION" \
+        --label "org.opencontainers.image.licenses=Apache-2.0" \
+        --label "org.opencontainers.image.title=Alloy Fleet Manager" \
+        --label "org.opencontainers.image.description=Self-hosted fleet management for Grafana Alloy" \
+        --label "org.opencontainers.image.url=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.documentation=$CI_PROJECT_URL/-/blob/main/README.md" \
+        --provenance=false \
+        --push \
+        "${TAGS[@]}" \
+        .
+
+# ---- 2. Terraform provider release (GoReleaser, GPG-signed) -------------
+#
+# GoReleaser does the heavy lifting:
+#   * cross-compiles for the Terraform Registry's required matrix
+#     (linux/darwin/windows × amd64/arm/arm64);
+#   * produces SHA256SUMS;
+#   * GPG-signs SHA256SUMS with the key whose ASCII-armored private bytes
+#     live in the GPG_PRIVATE_KEY CI variable (passphrase in
+#     GPG_PASSPHRASE);
+#   * uploads the artifacts to a GitLab generic package, where the
+#     Terraform Registry's "private registry protocol" or the public
+#     `registry.terraform.io` (via a small redirector) can fetch them.
+#
+# Required CI variables for this job:
+#   GPG_PRIVATE_KEY     — ASCII-armored, exported with `--export-secret-keys --armor`
+#   GPG_PASSPHRASE      — passphrase for the key above
+#   GORELEASER_KEY      — (optional) GoReleaser Pro key, blank if using OSS
+
+release:provider:goreleaser:
+  stage: release
+  image: goreleaser/goreleaser:latest
+  needs: []
+  <<: *rules_tag_only
+  variables:
+    GPG_FINGERPRINT: "${GPG_FINGERPRINT}"
+  before_script:
+    - apk add --no-cache git gnupg
+    - |
+      if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+        echo "✗ GPG_PRIVATE_KEY is not set; configure it under Settings → CI/CD → Variables"
+        exit 1
+      fi
+    - echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+    # Use a literal-block scalar so YAML doesn't choke on the inner
+    # colons in the awk script (`-F:` and `/^fpr:/`).
+    - |
+      export GPG_FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+      echo "Signing with $GPG_FINGERPRINT"
+  script:
+    - cd $PROVIDER_DIR
+    - goreleaser release --clean --config .goreleaser.yml
+  artifacts:
+    name: "terraform-provider-fleet-$CI_COMMIT_TAG"
+    paths:
+      - terraform/provider-fleet/dist/
+    expire_in: 90 days
+
+# ---- 3. fleetctl release (GoReleaser, multi-OS archives) ----------------
+
+release:fleetctl:goreleaser:
+  stage: release
+  image: goreleaser/goreleaser:latest
+  needs: []
+  <<: *rules_tag_only
+  before_script:
+    - apk add --no-cache git
+  script:
+    - cd $FLEETCTL_DIR
+    - goreleaser release --clean --config .goreleaser.yml
+  artifacts:
+    name: "fleetctl-$CI_COMMIT_TAG"
+    paths:
+      - cmd/fleetctl/dist/
+    expire_in: 90 days
+
+# ---- 4. npm publish for @fleet-oss/sdk ----------------------------------
+
+release:sdk:npm:
+  stage: release
+  needs: []
+  <<: *rules_tag_only
+  before_script:
+    - npm --version
+    - |
+      if [ -z "${NPM_TOKEN:-}" ]; then
+        echo "✗ NPM_TOKEN is not set; configure it under Settings → CI/CD → Variables"
+        exit 1
+      fi
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+  script:
+    - npm ci --include=dev
+    - npm run build --workspace packages/shared
+    - npm run build --workspace packages/sdk
+    # The version field in packages/sdk/package.json must match the tag.
+    # If you bump one without the other this job fails fast — by design.
+    - PKG_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
+    - TAG_VERSION="${CI_COMMIT_TAG#v}"
+    - |
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "✗ packages/sdk/package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+        exit 1
+      fi
+    - npm publish --workspace packages/sdk --access public --provenance
+
+# ===========================================================================
+# Stage: mirror  (always runs on default branch + tags)
+# ===========================================================================
+#
+# Push the GitLab repository (refs + tags) to the GitHub mirror. The
+# mirror is read-only on the GitHub side; issues and MRs stay on GitLab.
+#
+# Required CI variables:
+#   GITHUB_MIRROR_URL    e.g.  github.com/fleet-oss/alloy-fleet-manager.git
+#   GITHUB_DEPLOY_KEY    base64-encoded private SSH key with **write**
+#                        access to the GitHub mirror (a GitHub deploy key
+#                        with "Allow write access" enabled). Generate
+#                        with `ssh-keygen -t ed25519 -f mirror_key -C
+#                        gitlab-ci-mirror`, then `base64 -w0 mirror_key`.
+#
+# Why a deploy key not a PAT:
+#   - PATs leak more (a leaked PAT may unlock dozens of repos, a deploy
+#     key is scoped to a single repo);
+#   - SSO orgs frequently invalidate PATs without warning;
+#   - GitLab's `protected: true` flag on the variable + a one-purpose
+#     deploy key is a tighter security boundary.
+
+mirror:github:
+  stage: mirror
+  image: alpine:3.20
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $NIGHTLY_MIRROR == "true"'
+  before_script:
+    - apk add --no-cache git openssh-client
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - |
+      if [ -z "${GITHUB_DEPLOY_KEY:-}" ] || [ -z "${GITHUB_MIRROR_URL:-}" ]; then
+        echo "Mirror not configured (GITHUB_DEPLOY_KEY / GITHUB_MIRROR_URL missing); skipping."
+        exit 0
+      fi
+    - echo "$GITHUB_DEPLOY_KEY" | base64 -d > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    # `--mirror` pushes ALL refs (branches, tags, notes) and prunes refs
+    # that have been deleted on GitLab — making GitHub a true mirror.
+    - git remote add github "git@${GITHUB_MIRROR_URL/https:\/\//}" || true
+    - git remote set-url github "git@github.com:${GITHUB_MIRROR_URL#github.com/}"
+    - git fetch --prune origin
+    - git push --mirror github

@@ -1,0 +1,119 @@
+# GoReleaser config for terraform-provider-fleet.
+#
+# Layout matches the Terraform Registry's expectations exactly so the
+# release artifacts can be consumed by:
+#
+#   * the public Terraform Registry (registry.terraform.io) once we
+#     register the namespace + push the manifest;
+#   * a GitLab Generic Package — the "private registry protocol"
+#     redirector listed in docs/release.md uses the layout below
+#     verbatim.
+#
+# Publishing prerequisites (CI variables on the GitLab project):
+#
+#   GPG_PRIVATE_KEY    ASCII-armored private GPG key.
+#                      Generate locally:
+#                        gpg --full-generate-key   (RSA 4096, no expiry)
+#                        gpg --export-secret-keys --armor <fpr>
+#                      Paste the entire armored block into the variable
+#                      (mark it Protected + Masked).
+#   GPG_PASSPHRASE     Passphrase for that key.
+#   GPG_FINGERPRINT    Long-form fingerprint, set automatically by
+#                      .gitlab-ci.yml's release:provider:goreleaser job.
+#
+# Local dry-run:
+#
+#   ( cd terraform/provider-fleet \
+#     && goreleaser release --snapshot --skip=publish,sign --clean )
+
+version: 2
+
+project_name: terraform-provider-fleet
+
+# We're inside the provider Go module; the .gitlab-ci.yml `cd`s into
+# this directory before invoking goreleaser, so all paths here are
+# relative to terraform/provider-fleet/.
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: provider
+    main: .
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }}'
+    env:
+      - CGO_ENABLED=0
+    # Terraform Registry's required matrix. Don't trim this without
+    # updating docs/terraform.md — operators on Apple Silicon and ARM
+    # k8s nodes are a non-trivial slice.
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - '386'
+      - arm
+      - arm64
+    goarm:
+      - '6'
+      - '7'
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+      - goos: darwin
+        goarch: arm
+      - goos: freebsd
+        goarch: arm64
+
+archives:
+  # Filename + format mandated by the Terraform Registry. Do NOT change
+  # without bumping the registry manifest.
+  - id: provider-archive
+    formats: ['zip']
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+
+# Terraform Registry requires the SHA256SUMS file to be GPG-signed with
+# a detached binary signature (`.sig`). The fingerprint of the public
+# key must be registered with the Registry under the `fleet-oss`
+# namespace once.
+signs:
+  - artifacts: checksum
+    args:
+      - '--batch'
+      - '--local-user'
+      - '{{ .Env.GPG_FINGERPRINT }}'
+      - '--output'
+      - '${signature}'
+      - '--detach-sign'
+      - '${artifact}'
+
+release:
+  # We let the GitLab CI job upload artifacts to the GitLab generic
+  # package registry; goreleaser doesn't need to touch GitHub Releases
+  # because GitHub is a read-only mirror in this project.
+  disable: true
+
+# Snapshot config controls `goreleaser release --snapshot` (used by the
+# build:provider job to verify the manifest still works on every push).
+snapshot:
+  version_template: '0.0.0-dev-{{ .Commit }}'
+
+changelog:
+  disable: true

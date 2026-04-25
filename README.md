@@ -1,8 +1,18 @@
 # Alloy Fleet Manager (OSS, self-hosted)
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![pipeline status](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/badges/main/pipeline.svg)](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/-/pipelines)
+[![npm](https://img.shields.io/npm/v/@fleet-oss/sdk?label=%40fleet-oss%2Fsdk)](https://www.npmjs.com/package/@fleet-oss/sdk)
+[![Terraform Registry](https://img.shields.io/badge/Terraform-fleet--oss%2Ffleet-7B42BC.svg?logo=terraform)](https://registry.terraform.io/providers/fleet-oss/fleet)
+[![DCO](https://img.shields.io/badge/DCO-required-success)](CONTRIBUTING.md#sign-off-dco)
+
 A self-hosted, vendor-neutral replacement for Grafana Cloud Fleet Management.
 Built around Grafana Alloy's **native `remotecfg`** block, so Alloy itself is
 the agent — no sidecar process per host.
+
+> **Source of truth: [GitLab](https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager).**
+> [GitHub](https://github.com/fleet-oss/alloy-fleet-manager) is a read-only
+> mirror — please file issues and MRs on GitLab.
 
 ## What you get
 
@@ -41,6 +51,33 @@ flowchart LR
   end
   Alloy -->|"remotecfg: GetConfig
 Bearer AGENT_BEARER_TOKEN"| RPC
+```
+
+## Install
+
+Pre-built artifacts are published on every `vX.Y.Z` tag (see
+[`docs/release.md`](docs/release.md)):
+
+```bash
+# Container image — fleet-manager (multi-arch: amd64, arm64)
+docker pull registry.gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/fleet-manager:latest
+
+# TypeScript / Node SDK
+npm install @fleet-oss/sdk
+
+# Terraform provider (registry-published, GPG-verified)
+cat <<'EOF' > main.tf
+terraform {
+  required_providers {
+    fleet = { source = "fleet-oss/fleet", version = "~> 0.1" }
+  }
+}
+EOF
+
+# fleetctl Go CLI (Linux / macOS / Windows / FreeBSD)
+curl -sSL https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/-/releases/permalink/latest/downloads/fleetctl_linux_amd64.tar.gz \
+  | tar -xz fleetctl && sudo mv fleetctl /usr/local/bin/
+fleetctl --version
 ```
 
 ## Quickstart (local dev)
@@ -86,12 +123,22 @@ open http://localhost:9090/ui/
 - [docs/deployment.md](docs/deployment.md) — Docker + K8s + systemd
 - [docs/legacy-agent.md](docs/legacy-agent.md) — the preserved REST pull model
 - [docs/ui.md](docs/ui.md) — the admin UI (React SPA served at `/ui/`)
+- [docs/state.md](docs/state.md) — UI state management (useState/useReducer + Zustand stores)
 - [docs/terraform.md](docs/terraform.md) — native Terraform provider (`fleet_pipeline` resource + data sources)
 - [docs/audit.md](docs/audit.md) — append-only audit log for every admin mutation
+- [docs/auth.md](docs/auth.md) — identity, RBAC, sessions, API tokens
+- [docs/sso.md](docs/sso.md) — OIDC SSO operator guide (Keycloak / GitLab / Google / Auth0 recipes, YAML+UI overlay)
 - [docs/validation.md](docs/validation.md) — strict Alloy-syntax validation via `alloy fmt`
 - [docs/catalog.md](docs/catalog.md) — curated template catalog + install flow
 - [docs/fleetctl.md](docs/fleetctl.md) — Go CLI for scripting/CI workflows
-- [docs/sdk.md](docs/sdk.md) — `@fleet/sdk` TypeScript client for Node/browser
+- [docs/sdk.md](docs/sdk.md) — `@fleet-oss/sdk` TypeScript client for Node/browser
+- [docs/e2e-terraform.md](docs/e2e-terraform.md) — 0-to-100 end-to-end test (compose + Terraform + real Alloy + prom-sink)
+- [docs/ci-cd.md](docs/ci-cd.md) — GitLab pipeline reference + GitHub mirror setup
+- [docs/release.md](docs/release.md) — how to cut a release (tagging, artifacts, verification)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — local dev, DCO sign-off, MR rules
+- [SECURITY.md](SECURITY.md) — vulnerability disclosure process
+- [CHANGELOG.md](CHANGELOG.md) — release notes
+- [CLAUDE.md](CLAUDE.md) — handoff & context-recovery notes for AI sessions (read first when resuming)
 
 ## Repository layout
 
@@ -114,7 +161,7 @@ alloy-fleet-oss/
   cmd/
     fleetctl/            # Go CLI companion (cobra)
   packages/
-    sdk/                 # @fleet/sdk — TypeScript client for Node/browser
+    sdk/                 # @fleet-oss/sdk — TypeScript client for Node/browser
   examples/
     bootstrap.alloy      # Minimal /etc/alloy/config.alloy with remotecfg block
     k8s/                 # Minimal Alloy DaemonSet manifest
@@ -123,6 +170,19 @@ alloy-fleet-oss/
   docs/
   docker-compose.yml
 ```
+
+## License
+
+Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for the full
+text and third-party attribution.
+
+## Contributing
+
+We welcome bug reports, feature requests, and merge requests on
+**GitLab**. Every commit must carry a DCO `Signed-off-by:` trailer
+(`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+full guide and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for community
+expectations.
 
 ## Non-goals / deferred
 

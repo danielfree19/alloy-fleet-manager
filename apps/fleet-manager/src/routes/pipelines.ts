@@ -5,21 +5,39 @@ import {
 } from "@fleet/shared";
 import type { AppConfig } from "../config.js";
 import type { DbPool } from "../db/pool.js";
-import { makeAdminAuth } from "../auth/middleware.js";
+import { makeRequirePermission } from "../auth/middleware.js";
 import { validateAlloyTemplateStrict } from "../services/validator.js";
 import { sha256, assembleConfigFor } from "../services/pipeline-assembler.js";
-import { diffPipeline, recordAuditEvent } from "../services/audit.js";
+import {
+  auditFieldsFromActor,
+  diffPipeline,
+  recordAuditEvent,
+} from "../services/audit.js";
+import { envTokenActor } from "../auth/permissions.js";
 
 /**
  * Admin REST surface for managing `pipelines`. Every mutation also writes an
  * immutable row to `pipeline_versions` so history and rollback are always
  * available.
+ *
+ * Permissions:
+ *   GET     /pipelines              → pipelines.read
+ *   GET     /pipelines/:id          → pipelines.read
+ *   POST    /pipelines              → pipelines.create
+ *   PATCH   /pipelines/:id          → pipelines.update
+ *   DELETE  /pipelines/:id          → pipelines.delete
+ *   POST    /pipelines/validate     → pipelines.read
+ *   POST    /pipelines/assemble     → pipelines.read
+ *   GET     /remotecfg/collectors   → collectors.read
  */
 export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPluginAsync {
   return async function plugin(app: FastifyInstance) {
-    const adminAuth = makeAdminAuth(config.ADMIN_TOKEN);
+    const requirePermission = makeRequirePermission({
+      db,
+      adminToken: config.ADMIN_TOKEN,
+    });
 
-    app.post("/pipelines", { preHandler: adminAuth }, async (req, reply) => {
+    app.post("/pipelines", { preHandler: requirePermission("pipelines.create") }, async (req, reply) => {
       const parsed = CreatePipelineRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return reply
@@ -62,7 +80,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
           [row.id, content, hash, JSON.stringify(selector)],
         );
         await recordAuditEvent(client, {
-          actor: req.adminActor ?? "admin",
+          ...auditFieldsFromActor(req.actor ?? envTokenActor()),
           action: "pipeline.create",
           target_kind: "pipeline",
           target_id: row.id,
@@ -99,7 +117,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
       }
     });
 
-    app.get("/pipelines", { preHandler: adminAuth }, async () => {
+    app.get("/pipelines", { preHandler: requirePermission("pipelines.read") }, async () => {
       const r = await db.query(
         `SELECT id, name, selector, enabled, current_version, current_content, current_hash,
                 created_at, updated_at
@@ -108,7 +126,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
       return { pipelines: r.rows };
     });
 
-    app.get("/pipelines/:id", { preHandler: adminAuth }, async (req, reply) => {
+    app.get("/pipelines/:id", { preHandler: requirePermission("pipelines.read") }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const p = await db.query(
         `SELECT id, name, selector, enabled, current_version, current_content, current_hash,
@@ -125,7 +143,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
       return { pipeline: pRow, versions: v.rows };
     });
 
-    app.patch("/pipelines/:id", { preHandler: adminAuth }, async (req, reply) => {
+    app.patch("/pipelines/:id", { preHandler: requirePermission("pipelines.update") }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = UpdatePipelineRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -222,7 +240,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
           },
         );
         await recordAuditEvent(client, {
-          actor: req.adminActor ?? "admin",
+          ...auditFieldsFromActor(req.actor ?? envTokenActor()),
           action: "pipeline.update",
           target_kind: "pipeline",
           target_id: id,
@@ -260,7 +278,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
       return reply.code(200).send(r.rows[0]);
     });
 
-    app.delete("/pipelines/:id", { preHandler: adminAuth }, async (req, reply) => {
+    app.delete("/pipelines/:id", { preHandler: requirePermission("pipelines.delete") }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const client = await db.connect();
       try {
@@ -283,7 +301,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
         }
         const delRow = del.rows[0]!;
         await recordAuditEvent(client, {
-          actor: req.adminActor ?? "admin",
+          ...auditFieldsFromActor(req.actor ?? envTokenActor()),
           action: "pipeline.delete",
           target_kind: "pipeline",
           target_id: id,
@@ -311,7 +329,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
      * Request body: { content: string }
      * Response: { valid: boolean, errors: string[], engine: "alloy-fmt" | "builtin" }
      */
-    app.post("/pipelines/validate", { preHandler: adminAuth }, async (req, reply) => {
+    app.post("/pipelines/validate", { preHandler: requirePermission("pipelines.read") }, async (req, reply) => {
       const body = (req.body ?? {}) as { content?: unknown };
       if (typeof body.content !== "string") {
         return reply.code(400).send({ error: "bad_request", details: "content must be a string" });
@@ -330,7 +348,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
      * remotecfg_collectors table. Unlike the Connect `GetConfig` RPC, no
      * upsert happens.
      */
-    app.post("/pipelines/assemble", { preHandler: adminAuth }, async (req, reply) => {
+    app.post("/pipelines/assemble", { preHandler: requirePermission("pipelines.read") }, async (req, reply) => {
       const body = (req.body ?? {}) as { attributes?: Record<string, unknown> };
       const rawAttrs = body.attributes ?? {};
       if (typeof rawAttrs !== "object" || Array.isArray(rawAttrs)) {
@@ -350,7 +368,7 @@ export function registerPipelineRoutes(config: AppConfig, db: DbPool): FastifyPl
     });
 
     /** List registered Alloy collectors seen via remotecfg. */
-    app.get("/remotecfg/collectors", { preHandler: adminAuth }, async () => {
+    app.get("/remotecfg/collectors", { preHandler: requirePermission("collectors.read") }, async () => {
       const r = await db.query(
         `SELECT id, name, local_attributes, last_seen, last_status, last_error,
                 last_hash_served, created_at, updated_at

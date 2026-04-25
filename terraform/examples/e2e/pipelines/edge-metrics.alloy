@@ -1,0 +1,14 @@
+// edge-metrics: only delivered to collectors whose local_attributes
+// include role=edge. Used by the e2e test to prove selector matching
+// works end-to-end (the docker-compose Alloy is wired with role=edge,
+// so this pipeline is part of its assembled config; a hypothetical
+// role=core collector would NOT receive it).
+prometheus.scrape "sink_metrics" {
+  targets = [{
+    "__address__"      = "prom-sink:9091",
+    "__metrics_path__" = "/metrics",
+    "job"              = "prom-sink",
+  }]
+  forward_to      = [prometheus.remote_write.sink.receiver]
+  scrape_interval = "15s"
+}

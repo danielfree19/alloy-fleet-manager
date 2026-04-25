@@ -1,0 +1,66 @@
+# Fleet Manager SSO configuration example.
+#
+# Drop a copy of this file at any path readable by the manager process,
+# point `SSO_CONFIG_FILE` at it, and restart. The manager validates the
+# file at startup; a malformed file logs an error and disables SSO for
+# that boot rather than crashing — every other auth path keeps working.
+#
+# Anything you set in YAML is the default. Edits made through
+# `Settings → Identity providers` create per-provider override rows in
+# Postgres that win over the YAML defaults until they are deleted.
+# This is intentional: GitOps-driven defaults + ergonomic admin
+# overrides without a deploy round-trip.
+#
+# Secrets MUST be referenced via `${env:VAR}` interpolation. Bare
+# `${VAR}` is not supported — the prefix is mandatory so secret
+# references stand out in YAML diffs.
+
+providers:
+  # ---------------------------------------------------------------
+  # Keycloak (a self-hosted realm; canonical example)
+  # ---------------------------------------------------------------
+  - id: keycloak                                        # stable slug — appears in callback URL + audit metadata
+    kind: oidc                                          # only "oidc" is supported in this release
+    display_name: Keycloak                              # shown on the login button
+    issuer: https://kc.example.com/realms/fleet         # used for OIDC discovery + stored on JIT users
+    client_id: fleet-manager
+    client_secret: ${env:KEYCLOAK_CLIENT_SECRET}        # never inline a secret here
+    redirect_uri: https://fleet.example.com/auth/sso/callback/keycloak
+    scopes: ["openid", "email", "profile", "groups"]    # `groups` is non-standard; needed for Keycloak's group mapper
+    groups_claim: groups                                # dot-path supported, e.g. realm_access.roles
+    role_mappings:
+      "/fleet-admins": admin
+      "/fleet-editors": editor
+      "/fleet-readers": viewer
+
+  # ---------------------------------------------------------------
+  # GitLab (commented out — uncomment + fill in to enable)
+  # ---------------------------------------------------------------
+  # - id: gitlab
+  #   kind: oidc
+  #   display_name: GitLab
+  #   issuer: https://gitlab.example.com
+  #   client_id: ${env:GITLAB_CLIENT_ID}
+  #   client_secret: ${env:GITLAB_CLIENT_SECRET}
+  #   redirect_uri: https://fleet.example.com/auth/sso/callback/gitlab
+  #   scopes: ["openid", "email", "profile"]
+  #   groups_claim: groups_direct                       # GitLab's flat-group claim
+  #   role_mappings:
+  #     "platform/fleet-admins": admin
+  #     "platform/fleet-editors": editor
+
+  # ---------------------------------------------------------------
+  # Auth0 (commented out)
+  # ---------------------------------------------------------------
+  # - id: auth0
+  #   kind: oidc
+  #   display_name: Auth0
+  #   issuer: https://your-tenant.auth0.com/
+  #   client_id: ${env:AUTH0_CLIENT_ID}
+  #   client_secret: ${env:AUTH0_CLIENT_SECRET}
+  #   redirect_uri: https://fleet.example.com/auth/sso/callback/auth0
+  #   scopes: ["openid", "email", "profile"]
+  #   groups_claim: "https://fleet/groups"              # custom-claim namespace from your Action
+  #   role_mappings:
+  #     "fleet-admins": admin
+  #     "fleet-editors": editor

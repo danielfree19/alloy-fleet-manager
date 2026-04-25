@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import type { AppConfig } from "../config.js";
 import type { DbPool } from "../db/pool.js";
-import { makeAdminAuth } from "../auth/middleware.js";
+import { makeRequirePermission } from "../auth/middleware.js";
 
 /**
  * Read-only audit surface. Writes happen inline with the mutations
@@ -9,7 +9,10 @@ import { makeAdminAuth } from "../auth/middleware.js";
  */
 export function registerAuditRoutes(config: AppConfig, db: DbPool): FastifyPluginAsync {
   return async function plugin(app: FastifyInstance) {
-    const adminAuth = makeAdminAuth(config.ADMIN_TOKEN);
+    const requirePermission = makeRequirePermission({
+      db,
+      adminToken: config.ADMIN_TOKEN,
+    });
 
     /**
      * List audit events, most recent first.
@@ -23,7 +26,7 @@ export function registerAuditRoutes(config: AppConfig, db: DbPool): FastifyPlugi
      *   before       — RFC3339 timestamp; return rows strictly older than this
      *                  (pagination cursor)
      */
-    app.get("/audit", { preHandler: adminAuth }, async (req, reply) => {
+    app.get("/audit", { preHandler: requirePermission("audit.read") }, async (req, reply) => {
       const q = (req.query ?? {}) as Record<string, string | undefined>;
 
       const where: string[] = [];
@@ -36,6 +39,21 @@ export function registerAuditRoutes(config: AppConfig, db: DbPool): FastifyPlugi
       if (q.target_kind) push("target_kind = $?", q.target_kind);
       if (q.target_id) push("target_id = $?", q.target_id);
       if (q.action) push("action = $?", q.action);
+      // `actions` (comma-separated) — additive to `action`. Used by
+      // the SSO Activity page to read several action types in one
+      // call. Order: an `action=` always wins (preserves the legacy
+      // single-action behavior); `actions=` only fires when `action`
+      // is absent. Both are scoped to the same canonical-action
+      // column in the DB so injection is bounded by the IN clause.
+      if (!q.action && q.actions) {
+        const list = q.actions
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (list.length > 0) {
+          push("action = ANY($?::text[])", list);
+        }
+      }
       if (q.actor) push("actor ILIKE $?", `%${q.actor}%`);
       if (q.before) {
         const parsed = Date.parse(q.before);
@@ -48,7 +66,8 @@ export function registerAuditRoutes(config: AppConfig, db: DbPool): FastifyPlugi
       const limit = Math.min(Math.max(parseInt(q.limit ?? "100", 10) || 100, 1), 500);
 
       const sql = `
-        SELECT id, created_at, actor, action, target_kind, target_id, target_name, metadata
+        SELECT id, created_at, actor, action, target_kind, target_id, target_name, metadata,
+               actor_kind, actor_user_id, actor_email, actor_token_id
         FROM audit_events
         ${where.length ? "WHERE " + where.join(" AND ") : ""}
         ORDER BY created_at DESC

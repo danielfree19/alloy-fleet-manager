@@ -1,18 +1,46 @@
 import { Link, useNavigate } from "react-router-dom";
-import { AsyncBoundary, useAsync } from "@/components/Async";
+import { AsyncBoundary } from "@/components/Async";
+import { useCachedList } from "@/components/CachedAsync";
 import { PageHeader } from "@/components/PageHeader";
 import { Pill } from "@/components/Pill";
 import { listPipelines, updatePipeline } from "@/api/pipelines";
+import { invalidateCache } from "@/store/cache";
+import { toast } from "@/store/toasts";
+import { useHasPermission } from "@/store/auth";
 import { formatAttributes, relativeTime, shortHash } from "@/lib/format";
 import type { Pipeline } from "@/api/types";
 
+/** Cache key shared between this page and any component that lists pipelines. */
+export const PIPELINES_CACHE_KEY = "pipelines.list";
+
 export function Pipelines() {
-  const state = useAsync(listPipelines);
+  // Cached: navigating Pipelines → detail → back keeps the table on
+  // screen instead of re-flashing a spinner. The fetch still runs in
+  // the background so the data is fresh.
+  const state = useCachedList<Pipeline[]>(PIPELINES_CACHE_KEY, listPipelines);
   const navigate = useNavigate();
+  const canCreate = useHasPermission("pipelines.create");
 
   async function toggleEnabled(p: Pipeline) {
-    await updatePipeline(p.id, { enabled: !p.enabled });
-    state.reload();
+    try {
+      const next = !p.enabled;
+      await updatePipeline(p.id, { enabled: next });
+      toast.success(
+        next ? `Enabled "${p.name}"` : `Disabled "${p.name}"`,
+        next
+          ? "Matching collectors will pick it up on their next remotecfg poll."
+          : "Will be removed from matching collectors on their next poll.",
+      );
+      // Drop the cache so the reload pulls fresh data straight from
+      // the API rather than briefly showing the pre-toggle row.
+      invalidateCache(PIPELINES_CACHE_KEY);
+      state.reload();
+    } catch (err) {
+      toast.error(
+        "Toggle failed",
+        err instanceof Error ? err.message : "Unknown error",
+      );
+    }
   }
 
   return (
@@ -28,12 +56,14 @@ export function Pipelines() {
             <Link to="/catalog" className="btn">
               Browse catalog
             </Link>
-            <button
-              className="btn btn-primary"
-              onClick={() => navigate("/pipelines/new")}
-            >
-              + New pipeline
-            </button>
+            {canCreate && (
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate("/pipelines/new")}
+              >
+                + New pipeline
+              </button>
+            )}
           </>
         }
       />

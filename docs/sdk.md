@@ -1,4 +1,4 @@
-# `@fleet/sdk` — TypeScript client
+# `@fleet-oss/sdk` — TypeScript client
 
 A thin, typed wrapper around the Fleet Manager admin API. Works
 unmodified in Node.js (≥18), browsers, Bun, and Deno — it uses the
@@ -23,7 +23,7 @@ For declarative pipeline management, use the
 ## Quick example
 
 ```ts
-import { FleetClient, FleetApiError } from "@fleet/sdk";
+import { FleetClient, FleetApiError } from "@fleet-oss/sdk";
 
 const fleet = new FleetClient({
   endpoint: process.env.FLEET_ENDPOINT!,
@@ -72,5 +72,5 @@ external consumers pick up the types automatically.
 
 The UI package currently keeps a local copy of these types under
 `apps/fleet-ui/src/api/types.ts` (predating the SDK). A future
-cleanup can replace that with `import type ... from "@fleet/sdk"`;
+cleanup can replace that with `import type ... from "@fleet-oss/sdk"`;
 until then the shapes are kept in sync by hand.

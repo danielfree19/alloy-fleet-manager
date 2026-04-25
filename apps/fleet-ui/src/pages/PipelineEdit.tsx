@@ -13,6 +13,9 @@ import {
   updatePipeline,
 } from "@/api/pipelines";
 import { ApiError } from "@/api/client";
+import { toast } from "@/store/toasts";
+import { invalidateCache } from "@/store/cache";
+import { PIPELINES_CACHE_KEY } from "@/pages/Pipelines";
 import { relativeTime, shortHash } from "@/lib/format";
 import type { PipelineDetail } from "@/api/types";
 
@@ -45,16 +48,28 @@ function PipelineEditBody({
     setSubmitting(true);
     setApiError(null);
     try {
-      await updatePipeline(pipeline.id, {
+      const updated = await updatePipeline(pipeline.id, {
         selector: v.selector,
         enabled: v.enabled,
         content: v.content,
       });
+      invalidateCache(PIPELINES_CACHE_KEY);
+      toast.success(
+        `Saved ${updated.name} v${updated.current_version}`,
+        `Hash ${shortHash(updated.current_hash)}.`,
+      );
       onSaved();
     } catch (err) {
-      if (err instanceof ApiError) setApiError(`${err.message} (HTTP ${err.status})`);
-      else if (err instanceof Error) setApiError(err.message);
-      else setApiError("Unknown error");
+      const msg =
+        err instanceof ApiError
+          ? `${err.message} (HTTP ${err.status})`
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
+      // Inline banner for in-context detail; toast for cross-page
+      // visibility (e.g. while the user is scrolling the audit list).
+      setApiError(msg);
+      toast.error("Save failed", msg);
     } finally {
       setSubmitting(false);
     }
@@ -67,9 +82,13 @@ function PipelineEditBody({
     if (!confirmed) return;
     try {
       await deletePipeline(pipeline.id);
+      invalidateCache(PIPELINES_CACHE_KEY);
+      toast.success(`Deleted "${pipeline.name}"`);
       navigate("/pipelines");
     } catch (err) {
-      setApiError(err instanceof Error ? err.message : "Unknown error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setApiError(msg);
+      toast.error("Delete failed", msg);
     }
   }
 

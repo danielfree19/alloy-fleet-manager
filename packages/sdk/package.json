@@ -1,9 +1,27 @@
 {
-  "name": "@fleet/sdk",
+  "name": "@fleet-oss/sdk",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
   "description": "TypeScript client for the self-hosted Alloy Fleet Manager admin API.",
+  "license": "Apache-2.0",
+  "author": "The Fleet OSS Authors",
+  "homepage": "https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/-/issues"
+  },
+  "keywords": [
+    "grafana",
+    "alloy",
+    "fleet-management",
+    "remotecfg",
+    "observability",
+    "telemetry"
+  ],
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -14,13 +32,20 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE');require('fs').copyFileSync('../../NOTICE','NOTICE')\""
   },
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

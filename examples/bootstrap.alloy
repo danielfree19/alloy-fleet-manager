@@ -25,7 +25,16 @@ remotecfg {
   // /collector.v1.CollectorService/GetConfig are appended by Alloy).
   url = sys.env("FLEET_MANAGER_URL")
 
-  // Shared bearer token (matches AGENT_BEARER_TOKEN on the server).
+  // Bearer token for the remotecfg API. Two accepted formats — pick one:
+  //
+  //   1. The shared AGENT_BEARER_TOKEN env var on the server. Simplest;
+  //      every Alloy instance uses the same secret.
+  //
+  //   2. A per-Alloy `fmt_…` API token minted from the UI with the
+  //      built-in `agent` role (Settings → API tokens → New token →
+  //      role: agent). Per-collector revocation, attribution in the
+  //      manager's request log, and `last_used_at` liveness signal.
+  //
   // Use `bearer_token_file` in production so the secret isn't in-config.
   bearer_token = sys.env("FLEET_AGENT_BEARER_TOKEN")
 

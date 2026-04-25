@@ -214,3 +214,176 @@ func (c *Client) ListCollectors(ctx context.Context) ([]Collector, error) {
 	}
 	return out.Collectors, nil
 }
+
+// ---------------------------------------------------------------------------
+// Identity / RBAC DTOs
+// ---------------------------------------------------------------------------
+//
+// These mirror the manager's `routes/users.ts` / `routes/tokens.ts` shapes.
+// Local copies (no shared schema with the Node side) so the provider stays a
+// standalone Go module.
+
+// RoleRef is the trimmed `{id, name}` shape returned inside Users and ApiTokens.
+type RoleRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type Role struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	Builtin     bool     `json:"builtin"`
+	Permissions []string `json:"permissions"`
+}
+
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      *string   `json:"name"`
+	Disabled  bool      `json:"disabled"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
+	Roles     []RoleRef `json:"roles"`
+}
+
+type CreateUserInput struct {
+	Email    string   `json:"email"`
+	Name     *string  `json:"name,omitempty"`
+	Password string   `json:"password"`
+	RoleIDs  []string `json:"role_ids"`
+	Disabled bool     `json:"disabled"`
+}
+
+type UpdateUserInput struct {
+	Name     *string   `json:"name,omitempty"`
+	Disabled *bool     `json:"disabled,omitempty"`
+	RoleIDs  *[]string `json:"role_ids,omitempty"`
+}
+
+// ApiTokenSummary is the no-secrets shape returned by GET /tokens and
+// GET /tokens/:id. The plaintext `token` is only ever returned once, by
+// CreateApiToken, in CreateApiTokenResponse.
+type ApiTokenSummary struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Name        string    `json:"name"`
+	TokenPrefix string    `json:"token_prefix"`
+	ExpiresAt   *string   `json:"expires_at"`
+	RevokedAt   *string   `json:"revoked_at"`
+	LastUsedAt  *string   `json:"last_used_at"`
+	CreatedAt   string    `json:"created_at"`
+	Roles       []RoleRef `json:"roles"`
+}
+
+type CreateApiTokenInput struct {
+	Name      string   `json:"name"`
+	UserID    *string  `json:"user_id,omitempty"`
+	RoleIDs   []string `json:"role_ids"`
+	ExpiresAt *string  `json:"expires_at,omitempty"`
+}
+
+// CreateApiTokenResponse mirrors the on-the-wire shape of `POST /tokens`:
+//
+//	{ "token": "fmt_…", "api_token": { …ApiTokenSummary… } }
+//
+// The summary is intentionally NOT embedded — the manager nests it under
+// `api_token` to make plaintext-vs-metadata visually obvious in audit logs
+// and HTTP traces. Earlier revisions of this DTO embedded the summary at
+// the top level and silently produced empty IDs/names/role_ids in state
+// after every Create — see Terraform's
+// "Provider produced inconsistent result after apply" diagnostic.
+type CreateApiTokenResponse struct {
+	// Plaintext bearer. The manager will never return this again — the
+	// provider must persist it to state immediately, with sensitive: true.
+	Token    string          `json:"token"`
+	ApiToken ApiTokenSummary `json:"api_token"`
+}
+
+// ---------------------------------------------------------------------------
+// Identity / RBAC methods
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListRoles(ctx context.Context) ([]Role, error) {
+	var out struct {
+		Roles []Role `json:"roles"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/roles", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Roles, nil
+}
+
+// FindRoleByName is a convenience for the agent-role lookup pattern. Returns
+// nil with a nil error when the role doesn't exist (so callers can decide
+// whether to fail loudly or silently).
+func (c *Client) FindRoleByName(ctx context.Context, name string) (*Role, error) {
+	roles, err := c.ListRoles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range roles {
+		if roles[i].Name == name {
+			return &roles[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
+	var out struct {
+		Users []User `json:"users"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/users", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Users, nil
+}
+
+func (c *Client) CreateUser(ctx context.Context, in CreateUserInput) (*User, error) {
+	var out User
+	if err := c.do(ctx, http.MethodPost, "/users", in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetUser(ctx context.Context, id string) (*User, error) {
+	var out User
+	if err := c.do(ctx, http.MethodGet, "/users/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UpdateUser(ctx context.Context, id string, in UpdateUserInput) (*User, error) {
+	var out User
+	if err := c.do(ctx, http.MethodPatch, "/users/"+id, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteUser(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/users/"+id, nil, nil)
+}
+
+func (c *Client) CreateApiToken(ctx context.Context, in CreateApiTokenInput) (*CreateApiTokenResponse, error) {
+	var out CreateApiTokenResponse
+	if err := c.do(ctx, http.MethodPost, "/tokens", in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetApiToken(ctx context.Context, id string) (*ApiTokenSummary, error) {
+	var out ApiTokenSummary
+	if err := c.do(ctx, http.MethodGet, "/tokens/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) RevokeApiToken(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/tokens/"+id, nil, nil)
+}

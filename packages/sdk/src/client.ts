@@ -1,16 +1,26 @@
 import { FleetApiError } from "./errors.js";
 import type {
+  ApiTokenSummary,
   AssembledConfig,
   AuditEvent,
   CatalogListResponse,
   CatalogTemplate,
+  CreateApiTokenInput,
+  CreateApiTokenResponse,
   CreatePipelineInput,
+  CreateRoleInput,
+  CreateUserInput,
   Labels,
   ListAuditFilter,
+  MeResponse,
   Pipeline,
   PipelineDetail,
   RemotecfgCollector,
+  Role,
   UpdatePipelineInput,
+  UpdateRoleInput,
+  UpdateUserInput,
+  User,
   ValidateResult,
 } from "./types.js";
 
@@ -150,6 +160,134 @@ export class FleetClient {
       selector: overrides.selector ?? t.default_selector,
       enabled: overrides.enabled ?? true,
       content: overrides.content ?? t.content,
+    });
+  }
+
+  // ---- Identity ----------------------------------------------------------
+  //
+  // Resolves whatever bearer the client is configured with. For an env
+  // `ADMIN_TOKEN`, `kind === "env_token"` and `userId === null`; for an
+  // `fmt_…` API token, `kind === "api_token"` and `userId` is the owner.
+  // Useful for "do I need to provide user_id when minting a token?".
+
+  async me(): Promise<MeResponse> {
+    return this.request<MeResponse>("GET", "/auth/me");
+  }
+
+  // ---- Roles -------------------------------------------------------------
+
+  async listRoles(): Promise<Role[]> {
+    const r = await this.request<{ roles: Role[] }>("GET", "/roles");
+    return r.roles;
+  }
+
+  /** Convenience: find a built-in or custom role by exact name. */
+  async findRole(name: string): Promise<Role | null> {
+    const all = await this.listRoles();
+    return all.find((r) => r.name === name) ?? null;
+  }
+
+  async createRole(input: CreateRoleInput): Promise<Role> {
+    return this.request<Role>("POST", "/roles", input);
+  }
+
+  async updateRole(id: string, input: UpdateRoleInput): Promise<Role> {
+    return this.request<Role>("PATCH", `/roles/${encodeURIComponent(id)}`, input);
+  }
+
+  async deleteRole(id: string): Promise<void> {
+    await this.request<void>("DELETE", `/roles/${encodeURIComponent(id)}`);
+  }
+
+  // ---- Users -------------------------------------------------------------
+
+  async listUsers(): Promise<User[]> {
+    const r = await this.request<{ users: User[] }>("GET", "/users");
+    return r.users;
+  }
+
+  async getUser(id: string): Promise<User> {
+    return this.request<User>("GET", `/users/${encodeURIComponent(id)}`);
+  }
+
+  async findUserByEmail(email: string): Promise<User | null> {
+    const all = await this.listUsers();
+    return all.find((u) => u.email === email) ?? null;
+  }
+
+  async createUser(input: CreateUserInput): Promise<User> {
+    return this.request<User>("POST", "/users", input);
+  }
+
+  async updateUser(id: string, input: UpdateUserInput): Promise<User> {
+    return this.request<User>("PATCH", `/users/${encodeURIComponent(id)}`, input);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.request<void>("DELETE", `/users/${encodeURIComponent(id)}`);
+  }
+
+  // ---- API tokens --------------------------------------------------------
+  //
+  // Tokens carry a *subset* of their owner's roles (privilege containment is
+  // enforced server-side). Plaintext is returned exactly once, by
+  // `createApiToken` / `createAgentToken` — store it immediately.
+
+  async listApiTokens(opts: { user_id?: string } = {}): Promise<ApiTokenSummary[]> {
+    const path = opts.user_id
+      ? `/users/${encodeURIComponent(opts.user_id)}/tokens`
+      : "/tokens";
+    const r = await this.request<{ tokens: ApiTokenSummary[] }>("GET", path);
+    return r.tokens;
+  }
+
+  async getApiToken(id: string): Promise<ApiTokenSummary> {
+    return this.request<ApiTokenSummary>("GET", `/tokens/${encodeURIComponent(id)}`);
+  }
+
+  async createApiToken(input: CreateApiTokenInput): Promise<CreateApiTokenResponse> {
+    return this.request<CreateApiTokenResponse>("POST", "/tokens", input);
+  }
+
+  async revokeApiToken(id: string): Promise<void> {
+    await this.request<void>("DELETE", `/tokens/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Mint a token for an Alloy collector. Looks up the built-in `agent`
+   * role (single permission: `collectors.poll`) and creates a token bound
+   * to it. Useful for per-host token issuance from automation:
+   *
+   * ```ts
+   * const t = await sdk.createAgentToken({
+   *   name: "edge-host-01",
+   *   user_id: serviceAccountId,
+   * });
+   * // Drop t.token into the host's bootstrap.alloy then forget it.
+   * ```
+   *
+   * If the manager doesn't expose an `agent` role (very old deployments
+   * pre-`collectors.poll`), this throws with a message pointing at the
+   * fallback: use the legacy `AGENT_BEARER_TOKEN` env var on the manager
+   * instead.
+   */
+  async createAgentToken(input: {
+    name: string;
+    user_id?: string;
+    expires_at?: string | null;
+  }): Promise<CreateApiTokenResponse> {
+    const role = await this.findRole("agent");
+    if (!role) {
+      throw new Error(
+        "FleetClient.createAgentToken: no `agent` role on the manager. " +
+          "Upgrade the manager (it ships built-in) or use AGENT_BEARER_TOKEN.",
+      );
+    }
+    return this.createApiToken({
+      name: input.name,
+      user_id: input.user_id,
+      role_ids: [role.id],
+      expires_at: input.expires_at ?? null,
     });
   }
 

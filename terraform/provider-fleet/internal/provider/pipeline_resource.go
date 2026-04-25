@@ -150,7 +150,14 @@ func (r *pipelineResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	detail, err := r.client.GetPipeline(ctx, state.ID.ValueString())
+	// Defensive guard — see api_token_resource.Read for the rationale.
+	id := state.ID.ValueString()
+	if state.ID.IsNull() || state.ID.IsUnknown() || id == "" {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	detail, err := r.client.GetPipeline(ctx, id)
 	if err != nil {
 		if IsNotFound(err) {
 			// Object was deleted out-of-band — drop from state so the next

@@ -9,12 +9,17 @@
 
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import type { AppConfig } from "../config.js";
-import { makeAdminAuth } from "../auth/middleware.js";
+import type { DbPool } from "../db/pool.js";
+import { makeRequirePermission } from "../auth/middleware.js";
 import { loadCatalog, findTemplate } from "../catalog/loader.js";
 
-export function registerCatalogRoutes(config: AppConfig): FastifyPluginAsync {
+export function registerCatalogRoutes(config: AppConfig, db: DbPool): FastifyPluginAsync {
   return async function plugin(app: FastifyInstance) {
-    const adminAuth = makeAdminAuth(config.ADMIN_TOKEN);
+    const requirePermission = makeRequirePermission({
+      db,
+      adminToken: config.ADMIN_TOKEN,
+    });
+    const adminAuth = requirePermission("catalog.read");
 
     /**
      * List templates. Returns lightweight entries without the `content`

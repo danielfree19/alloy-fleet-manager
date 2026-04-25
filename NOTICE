@@ -1,0 +1,41 @@
+Alloy Fleet Manager (OSS)
+Copyright 2026 The Fleet OSS Authors
+
+This product includes software developed at and for The Fleet OSS Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may
+not use these files except in compliance with the License. A copy of the
+License is included as LICENSE in the repository root, and is also
+available at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------
+Third-party material vendored or used at runtime
+--------------------------------------------------------------------------
+
+This repository vendors a copy of the Connect protobuf surface from the
+Grafana Alloy "alloy-remote-config" project, used by the Fleet Manager
+to speak the same `collector.v1.CollectorService` RPC that Grafana Cloud
+Fleet Management exposes:
+
+    proto/collector/v1/*.proto
+    Source : https://github.com/grafana/alloy-remote-config
+    License: Apache-2.0
+
+The runtime container image baked from `apps/fleet-manager/Dockerfile`
+copies the `alloy` binary out of the upstream `grafana/alloy` image and
+invokes it for `alloy fmt` syntax validation:
+
+    https://github.com/grafana/alloy
+    License: Apache-2.0
+
+The Terraform provider (`terraform/provider-fleet`) is built against the
+HashiCorp Terraform Plugin Framework:
+
+    https://github.com/hashicorp/terraform-plugin-framework
+    License: MPL-2.0 (used in unmodified form, dynamic dependency only)
+
+All other third-party dependencies are declared in the per-language
+manifests (`package.json`, `go.mod`) and retain their respective
+upstream licenses.

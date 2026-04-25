@@ -32,7 +32,7 @@ FLEET_CATALOG_URL  ──────►│  - merges remote on top │
                                         │
                 ┌───────────────────────┼──────────────────────┐
                 ▼                       ▼                      ▼
-         Fleet UI                    fleetctl              @fleet/sdk
+         Fleet UI                    fleetctl              @fleet-oss/sdk
      /ui/catalog page          `fleetctl catalog …`      `client.listCatalog()`
          "Install"             `fleetctl catalog install …`
 ```
@@ -200,10 +200,10 @@ merge). This is deliberate: selector targeting is subtle enough that
 
 ---
 
-## Using from `@fleet/sdk`
+## Using from `@fleet-oss/sdk`
 
 ```ts
-import { FleetClient } from "@fleet/sdk";
+import { FleetClient } from "@fleet-oss/sdk";
 
 const client = new FleetClient({
   endpoint: "http://localhost:9090",

@@ -1,8 +1,11 @@
-# @fleet/sdk
+# @fleet-oss/sdk
+
+[![npm](https://img.shields.io/npm/v/@fleet-oss/sdk.svg)](https://www.npmjs.com/package/@fleet-oss/sdk)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
 TypeScript client for the self-hosted Alloy Fleet Manager admin API.
 
-Works unmodified in Node.js (≥18), browsers, Bun, and Deno — it uses the
+Works unmodified in Node.js (≥20), browsers, Bun, and Deno — it uses the
 global `fetch` and ships no runtime dependencies.
 
 ## Install
@@ -10,13 +13,13 @@ global `fetch` and ships no runtime dependencies.
 Inside this monorepo it's a workspace package. For external use:
 
 ```bash
-npm install @fleet/sdk
+npm install @fleet-oss/sdk
 ```
 
 ## Usage
 
 ```ts
-import { FleetClient } from "@fleet/sdk";
+import { FleetClient } from "@fleet-oss/sdk";
 
 const fleet = new FleetClient({
   endpoint: process.env.FLEET_ENDPOINT!,      // e.g. http://localhost:9090
@@ -59,7 +62,7 @@ await fleet.installCatalogTemplate("node-exporter", {
 Every non-2xx response is thrown as a `FleetApiError`:
 
 ```ts
-import { FleetApiError } from "@fleet/sdk";
+import { FleetApiError } from "@fleet-oss/sdk";
 
 try {
   await fleet.createPipeline({ /* ... */ });

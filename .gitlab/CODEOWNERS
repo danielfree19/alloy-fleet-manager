@@ -1,0 +1,20 @@
+# GitLab CODEOWNERS — see https://docs.gitlab.com/ee/user/project/codeowners/
+#
+# Replace `@fleet-oss/maintainers` with your actual GitLab group or
+# individual handles when you fork this project under your own org.
+# Until then, every line points at the maintainers group so MRs always
+# get a pair of eyes from someone in MAINTAINERS.md.
+
+* @fleet-oss/maintainers
+
+# Security-sensitive paths: require an explicit Approval, no
+# self-approve, and an audit-log review.
+[Security-sensitive]
+/apps/fleet-manager/src/auth/        @fleet-oss/maintainers
+/apps/fleet-manager/src/routes/auth.ts @fleet-oss/maintainers
+/apps/fleet-manager/src/routes/sso*.ts @fleet-oss/maintainers
+/apps/fleet-manager/src/db/migrations/ @fleet-oss/maintainers
+/SECURITY.md                         @fleet-oss/maintainers
+/.gitlab-ci.yml                      @fleet-oss/maintainers
+/LICENSE                             @fleet-oss/maintainers
+/NOTICE                              @fleet-oss/maintainers

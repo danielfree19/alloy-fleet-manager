@@ -40,6 +40,9 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me-admin-token}
       REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:-change-me-registration-token}
       AGENT_BEARER_TOKEN: ${AGENT_BEARER_TOKEN:-change-me-agent-bearer-token}
+      SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-changeme-on-first-login}
       LOG_LEVEL: info
       NODE_ENV: production
     ports:
@@ -47,6 +50,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Healthcheck uses Node 20's built-in `fetch` so we don't need to add
+    # curl/wget to the slim runtime image. The /health endpoint is cheap
+    # (just confirms the http server is accepting requests + the db pool
+    # can round-trip a SELECT 1). Alloy gates on this — without it Alloy
+    # boots while migrations are still running, dials a closed socket,
+    # and hard-exits.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   alloy:
     image: grafana/alloy:latest
@@ -72,8 +87,16 @@ services:
     volumes:
       - ./examples/bootstrap.alloy:/etc/alloy/config.alloy:ro
       - alloy_data:/var/lib/alloy/data
+    # Alloy's `remotecfg` block dials the manager on initial graph evaluation
+    # and hard-exits on connection refused. Two safety nets keep the e2e test
+    # deterministic:
+    #   1. service_healthy gating — only start once /health is green.
+    #   2. restart on-failure — covers transient races (e.g. manager restart
+    #      mid-test) without turning a real config error into an infinite loop.
     depends_on:
-      - fleet-manager
+      fleet-manager:
+        condition: service_healthy
+    restart: on-failure:5
     profiles: ["with-alloy"]
 
   # Dummy remote_write sink. A real Prometheus instance started with

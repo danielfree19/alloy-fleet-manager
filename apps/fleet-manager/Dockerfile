@@ -30,6 +30,17 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# OCI image labels so registry UIs (Docker Hub, GitLab Container Registry,
+# GHCR if we ever push there) show source/license/version info correctly.
+# CI overrides org.opencontainers.image.version and .revision per build.
+LABEL org.opencontainers.image.title="Alloy Fleet Manager" \
+      org.opencontainers.image.description="Self-hosted fleet management for Grafana Alloy collectors" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager" \
+      org.opencontainers.image.url="https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager" \
+      org.opencontainers.image.documentation="https://gitlab.thepcport.com/fleet-oss/alloy-fleet-manager/-/blob/main/README.md" \
+      org.opencontainers.image.vendor="The Fleet OSS Authors"
+
 # The `alloy` binary is baked in so we can invoke `alloy fmt` in a subprocess
 # to validate pipeline content at write time. We pull from the upstream
 # grafana/alloy image rather than downloading the tarball so we inherit any

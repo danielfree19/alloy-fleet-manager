@@ -1,0 +1,12 @@
+// base-self-metrics: every Alloy collector scrapes its own admin endpoint
+// and forwards to the shared sink. Lets us prove the pipeline is alive
+// even before any real workload metrics show up.
+prometheus.scrape "alloy_self" {
+  targets = [{
+    "__address__"      = "127.0.0.1:12345",
+    "__metrics_path__" = "/metrics",
+    "job"              = "alloy",
+  }]
+  forward_to      = [prometheus.remote_write.sink.receiver]
+  scrape_interval = "15s"
+}

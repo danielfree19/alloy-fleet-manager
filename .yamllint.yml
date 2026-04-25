@@ -1,0 +1,29 @@
+# yamllint config used by the lint:yaml CI job.
+# Goal: catch real mistakes (tabs, duplicate keys, trailing whitespace)
+# without bikeshedding line lengths in our compose / k8s / helm / sso
+# example files.
+extends: default
+
+rules:
+  document-start: disable
+  line-length: disable
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+  braces:
+    max-spaces-inside: 1
+
+ignore: |
+  node_modules/
+  apps/*/dist/
+  packages/*/dist/
+  terraform/provider-fleet/dist/
+  cmd/fleetctl/dist/
+  .npm-cache/
+  .go-cache-provider/
+  .go-cache-fleetctl/

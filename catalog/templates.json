@@ -150,6 +150,266 @@
         "Ports 4317 (gRPC) and 4318 (HTTP) available on the host."
       ],
       "content": "otelcol.receiver.otlp \"default\" {\n  grpc {\n    endpoint = \"0.0.0.0:4317\"\n  }\n  http {\n    endpoint = \"0.0.0.0:4318\"\n  }\n\n  output {\n    traces = [otelcol.exporter.otlp.remote.input]\n  }\n}\n\notelcol.exporter.otlp \"remote\" {\n  client {\n    endpoint = sys.env(\"OTLP_EXPORT_ENDPOINT\")\n\n    // If your remote is TLS-terminated, flip this:\n    // tls {\n    //   insecure = false\n    // }\n    tls {\n      insecure = true\n    }\n  }\n}\n"
+    },
+    {
+      "id": "loki-write-sink",
+      "name": "Loki write sink",
+      "description": "Fan-in `loki.write` receiver. Every logs pipeline (systemd journal, Docker, k8s pod logs, /var/log files) references this one via `loki.write.sink.receiver`. Install once fleet-wide.",
+      "category": "sinks",
+      "tags": ["loki", "logs", "base"],
+      "default_selector": {},
+      "suggested_name": "loki-write-sink",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/loki/loki.write/",
+      "requires": [
+        "A Loki-compatible push endpoint reachable from every collector. Set `LOKI_WRITE_URL` on the collector or edit the URL inline."
+      ],
+      "content": "// Fleet-wide logs fan-in: every log source forwards to this one\n// receiver so changing destinations only requires editing this single\n// pipeline. Mirrors the `remote-write-sink` pattern for metrics.\nloki.write \"sink\" {\n  endpoint {\n    url = coalesce(sys.env(\"LOKI_WRITE_URL\"), \"http://loki:3100/loki/api/v1/push\")\n\n    // Uncomment for authenticated Loki (Grafana Cloud, multi-tenant):\n    // basic_auth {\n    //   username = sys.env(\"LOKI_USER\")\n    //   password = sys.env(\"LOKI_PASS\")\n    // }\n    // tenant_id = sys.env(\"LOKI_TENANT\")\n  }\n\n  // Apply fleet-wide labels here so individual sources don't have to.\n  external_labels = {\n    cluster = coalesce(sys.env(\"CLUSTER\"), \"default\"),\n  }\n}\n"
+    },
+    {
+      "id": "tempo-otlp-sink",
+      "name": "Tempo / OTLP traces sink",
+      "description": "Fan-in `otelcol.exporter.otlp` receiver named `sink`. Trace receivers (OTLP, Zipkin, Jaeger) forward to `otelcol.exporter.otlp.sink.input` so changing the Tempo backend means editing only this pipeline.",
+      "category": "sinks",
+      "tags": ["tempo", "otlp", "traces", "opentelemetry", "base"],
+      "default_selector": {},
+      "suggested_name": "tempo-otlp-sink",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.otlp/",
+      "requires": [
+        "A Tempo / OTLP-compatible traces endpoint reachable from every collector. Set `TEMPO_OTLP_ENDPOINT` on the collector (e.g. `tempo:4317`)."
+      ],
+      "content": "// Fleet-wide traces fan-in. Other pipelines reference this as\n// `otelcol.exporter.otlp.sink.input`; repoint here to switch backends.\notelcol.exporter.otlp \"sink\" {\n  client {\n    endpoint = coalesce(sys.env(\"TEMPO_OTLP_ENDPOINT\"), \"tempo:4317\")\n\n    // For TLS-terminated remotes flip insecure=false and provide CAs:\n    // tls {\n    //   insecure = false\n    //   ca_file  = sys.env(\"TEMPO_CA_FILE\")\n    // }\n    tls {\n      insecure = true\n    }\n\n    // Multi-tenant Tempo / Grafana Cloud Traces — pass the tenant header:\n    // headers = {\n    //   \"X-Scope-OrgID\" = sys.env(\"TEMPO_TENANT\"),\n    // }\n  }\n}\n"
+    },
+    {
+      "id": "mimir-remote-write-sink",
+      "name": "Mimir / Grafana Cloud remote_write sink",
+      "description": "Authenticated variant of `remote-write-sink` for Grafana Cloud Metrics, Mimir or Cortex. Has basic_auth + tenant header pre-wired. Install ALONGSIDE `remote-write-sink` (not as a replacement) when you want a managed destination.",
+      "category": "sinks",
+      "tags": ["mimir", "cortex", "grafana-cloud", "prometheus", "remote-write"],
+      "default_selector": {},
+      "suggested_name": "mimir-remote-write-sink",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.remote_write/",
+      "requires": [
+        "`MIMIR_REMOTE_WRITE_URL`, `MIMIR_USER`, `MIMIR_PASS` env vars set on each collector.",
+        "If you want to fan-out to BOTH Mimir and your local Prometheus, install this template + the standard `remote-write-sink` and have scrape pipelines `forward_to` both receivers."
+      ],
+      "content": "// Authenticated remote_write sink for Grafana Cloud Metrics / Mimir /\n// Cortex. The component is named `mimir_sink` so it doesn't clash with\n// the unauthenticated `remote-write-sink` template — pipelines that\n// want to ship to BOTH targets can list both receivers in forward_to.\nprometheus.remote_write \"mimir_sink\" {\n  endpoint {\n    url = sys.env(\"MIMIR_REMOTE_WRITE_URL\")\n\n    basic_auth {\n      username = sys.env(\"MIMIR_USER\")\n      password = sys.env(\"MIMIR_PASS\")\n    }\n\n    // Multi-tenant Mimir / Cortex requires the X-Scope-OrgID header:\n    // headers = {\n    //   \"X-Scope-OrgID\" = sys.env(\"MIMIR_TENANT\"),\n    // }\n  }\n}\n"
+    },
+    {
+      "id": "redis-exporter",
+      "name": "Redis metrics",
+      "description": "Embedded redis_exporter via `prometheus.exporter.redis`. Connection info comes from `REDIS_ADDR` (and optionally `REDIS_PASSWORD`) on the collector.",
+      "category": "metrics",
+      "tags": ["redis", "database", "cache"],
+      "default_selector": { "role": "redis" },
+      "suggested_name": "redis-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.redis/",
+      "requires": [
+        "The target collector has `REDIS_ADDR` env set (e.g. `redis://localhost:6379`).",
+        "If Redis requires AUTH, also set `REDIS_PASSWORD`.",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "prometheus.exporter.redis \"default\" {\n  redis_addr = sys.env(\"REDIS_ADDR\")\n\n  // Uncomment for password-protected Redis instances:\n  // redis_password = sys.env(\"REDIS_PASSWORD\")\n}\n\nprometheus.scrape \"redis\" {\n  targets         = prometheus.exporter.redis.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "mysql-exporter",
+      "name": "MySQL / MariaDB metrics",
+      "description": "Embedded mysqld_exporter via `prometheus.exporter.mysql`. The DSN is read from the collector's `MYSQL_DSN` env var so secrets never appear in pipeline content.",
+      "category": "metrics",
+      "tags": ["mysql", "mariadb", "database"],
+      "default_selector": { "role": "mysql" },
+      "suggested_name": "mysql-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.mysql/",
+      "requires": [
+        "The target collector has `MYSQL_DSN` env set (e.g. `exporter:pass@tcp(localhost:3306)/`).",
+        "The exporter user has the standard `PROCESS, REPLICATION CLIENT, SELECT` grants.",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "prometheus.exporter.mysql \"default\" {\n  data_source_name = sys.env(\"MYSQL_DSN\")\n}\n\nprometheus.scrape \"mysql\" {\n  targets         = prometheus.exporter.mysql.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "mongodb-exporter",
+      "name": "MongoDB metrics",
+      "description": "Embedded mongodb_exporter via `prometheus.exporter.mongodb`. The connection URI is read from `MONGODB_URI` on the collector.",
+      "category": "metrics",
+      "tags": ["mongodb", "database"],
+      "default_selector": { "role": "mongodb" },
+      "suggested_name": "mongodb-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.mongodb/",
+      "requires": [
+        "The target collector has `MONGODB_URI` env set (e.g. `mongodb://exporter:pass@host:27017/?ssl=false`).",
+        "The exporter user has `clusterMonitor` role.",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "prometheus.exporter.mongodb \"default\" {\n  mongodb_uri = sys.env(\"MONGODB_URI\")\n}\n\nprometheus.scrape \"mongodb\" {\n  targets         = prometheus.exporter.mongodb.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "windows-exporter",
+      "name": "Windows host metrics",
+      "description": "Embedded windows_exporter via `prometheus.exporter.windows`. CPU, memory, disk, network, services, IIS — the standard Windows host metrics set. Pair with selector `collector.os=windows`.",
+      "category": "metrics",
+      "tags": ["windows", "host", "infrastructure"],
+      "default_selector": { "collector.os": "windows" },
+      "suggested_name": "windows-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.windows/",
+      "requires": [
+        "Windows host (won't work on Linux collectors).",
+        "Alloy is running with sufficient privileges to read perf counters (typically LocalSystem or admin).",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// windows_exporter lives inside Alloy as prometheus.exporter.windows.\n// The default collector set covers the common ground; extend via\n// `enabled_collectors` if you need IIS, MSSQL, ScheduledTask, etc.\nprometheus.exporter.windows \"default\" {\n}\n\nprometheus.scrape \"windows\" {\n  targets         = prometheus.exporter.windows.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "cadvisor",
+      "name": "Container metrics (cAdvisor)",
+      "description": "Embedded cAdvisor via `prometheus.exporter.cadvisor`. Per-container CPU, memory, network, and FS metrics from the local container runtime. Ideal for Docker hosts; on Kubernetes prefer the kubelet's built-in cAdvisor (scrape via service discovery).",
+      "category": "metrics",
+      "tags": ["containers", "docker", "cadvisor"],
+      "default_selector": { "runtime": "docker" },
+      "suggested_name": "cadvisor",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.cadvisor/",
+      "requires": [
+        "Alloy can read `/var/lib/docker` and `/sys/fs/cgroup` (mount them into the container if Alloy itself runs in Docker).",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// cAdvisor introspects the host's cgroup hierarchy automatically.\n// On Docker hosts, mount /var/lib/docker (read-only) and /sys/fs/cgroup\n// into the Alloy container so labels include image/container names.\nprometheus.exporter.cadvisor \"default\" {\n}\n\nprometheus.scrape \"cadvisor\" {\n  targets         = prometheus.exporter.cadvisor.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "blackbox-probes",
+      "name": "Blackbox synthetic probes",
+      "description": "Embedded blackbox_exporter via `prometheus.exporter.blackbox`. Defines HTTP/TCP probe modules and a starter target list — extend the targets array to monitor your own URLs/services.",
+      "category": "metrics",
+      "tags": ["blackbox", "synthetic", "probes", "http"],
+      "default_selector": {},
+      "suggested_name": "blackbox-probes",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.blackbox/",
+      "requires": [
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// HTTP/TCP synthetic probes. Edit the `target` blocks to point at\n// your own services; modules are reusable across targets.\nprometheus.exporter.blackbox \"default\" {\n  config = `\nmodules:\n  http_2xx:\n    prober: http\n    timeout: 5s\n    http:\n      preferred_ip_protocol: ip4\n      valid_status_codes: [200, 201, 204]\n  tcp_connect:\n    prober: tcp\n    timeout: 5s\n`\n\n  target {\n    name    = \"example-http\"\n    address = \"https://example.com\"\n    module  = \"http_2xx\"\n  }\n}\n\nprometheus.scrape \"blackbox\" {\n  targets         = prometheus.exporter.blackbox.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"60s\"\n}\n"
+    },
+    {
+      "id": "kafka-exporter",
+      "name": "Kafka metrics",
+      "description": "Embedded kafka_exporter via `prometheus.exporter.kafka`. Reports broker, topic, partition, and consumer-group metrics. Configure brokers via `KAFKA_BROKER` (single) or edit the array inline (multi-broker).",
+      "category": "metrics",
+      "tags": ["kafka", "messaging", "streaming"],
+      "default_selector": { "role": "kafka" },
+      "suggested_name": "kafka-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.kafka/",
+      "requires": [
+        "The target collector has `KAFKA_BROKER` env set (e.g. `localhost:9092`), or edit the inline `kafka_uris` array.",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "prometheus.exporter.kafka \"default\" {\n  kafka_uris = [coalesce(sys.env(\"KAFKA_BROKER\"), \"localhost:9092\")]\n\n  // For multi-broker clusters, list them explicitly:\n  // kafka_uris = [\"broker1:9092\", \"broker2:9092\", \"broker3:9092\"]\n}\n\nprometheus.scrape \"kafka\" {\n  targets         = prometheus.exporter.kafka.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "rabbitmq-scrape",
+      "name": "RabbitMQ metrics (native plugin / sidecar)",
+      "description": "Scrapes RabbitMQ metrics. Two valid sources: (1) the native `rabbitmq_prometheus` plugin on port 15692 (RabbitMQ 3.8+, recommended), or (2) the standalone rabbitmq_exporter sidecar. Set `RABBITMQ_METRICS_ADDR` to the chosen endpoint.",
+      "category": "metrics",
+      "tags": ["rabbitmq", "messaging", "amqp"],
+      "default_selector": { "role": "rabbitmq" },
+      "suggested_name": "rabbitmq-scrape",
+      "docs_url": "https://www.rabbitmq.com/prometheus.html",
+      "requires": [
+        "Either RabbitMQ's `rabbitmq_prometheus` plugin enabled (default port 15692), or a `rabbitmq_exporter` reachable from the collector.",
+        "The collector has `RABBITMQ_METRICS_ADDR` env set (host:port).",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// Alloy doesn't bundle a RabbitMQ exporter — RabbitMQ 3.8+ exposes\n// metrics natively when the rabbitmq_prometheus plugin is enabled\n// (default port 15692). For older versions, run rabbitmq_exporter as\n// a sidecar and point this at it.\nprometheus.scrape \"rabbitmq\" {\n  targets = [{\n    \"__address__\"      = coalesce(sys.env(\"RABBITMQ_METRICS_ADDR\"), \"localhost:15692\"),\n    \"__metrics_path__\" = \"/metrics\",\n    \"job\"              = \"rabbitmq\",\n  }]\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "process-exporter",
+      "name": "Per-process metrics",
+      "description": "Embedded process_exporter via `prometheus.exporter.process`. Per-process CPU, memory, and IO metrics. The matcher block scopes which processes are reported — keep it tight to avoid metric explosion.",
+      "category": "metrics",
+      "tags": ["process", "host", "linux"],
+      "default_selector": { "collector.os": "linux" },
+      "suggested_name": "process-exporter",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.exporter.process/",
+      "requires": [
+        "Linux host with /proc readable by Alloy (the default).",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// Edit the `comm` array to track different processes; one series per\n// matched process group is created. Drop the matcher to track every\n// process (high cardinality — be careful in production).\nprometheus.exporter.process \"default\" {\n  matcher {\n    name = \"{{.Comm}}\"\n    comm = [\"nginx\", \"redis-server\", \"postgres\", \"alloy\"]\n  }\n}\n\nprometheus.scrape \"process\" {\n  targets         = prometheus.exporter.process.default.targets\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "kube-state-metrics",
+      "name": "Kubernetes object metrics (kube-state-metrics)",
+      "description": "Discovers the kube-state-metrics service in `kube-system` and scrapes its `http-metrics` port. Reports state for Deployments, Pods, Nodes, etc. — the metrics that complement raw kubelet/cAdvisor stats.",
+      "category": "metrics",
+      "tags": ["kubernetes", "k8s", "kube-state-metrics"],
+      "default_selector": { "platform": "kubernetes" },
+      "suggested_name": "kube-state-metrics",
+      "docs_url": "https://github.com/kubernetes/kube-state-metrics",
+      "requires": [
+        "kube-state-metrics deployed in `kube-system` exposing the `http-metrics` port (default upstream chart).",
+        "Alloy's ServiceAccount has `get/list/watch` on `endpoints` in `kube-system`.",
+        "`prometheus.remote_write.sink.receiver` must exist."
+      ],
+      "content": "// Discover the kube-state-metrics endpoint and scrape it. Adjust the\n// namespace/service-name regexes if your install uses non-defaults.\ndiscovery.kubernetes \"ksm\" {\n  role = \"endpoints\"\n  namespaces {\n    names = [\"kube-system\"]\n  }\n}\n\ndiscovery.relabel \"ksm\" {\n  targets = discovery.kubernetes.ksm.targets\n\n  rule {\n    source_labels = [\"__meta_kubernetes_service_name\"]\n    action        = \"keep\"\n    regex         = \"kube-state-metrics\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_endpoint_port_name\"]\n    action        = \"keep\"\n    regex         = \"http-metrics\"\n  }\n}\n\nprometheus.scrape \"ksm\" {\n  targets         = discovery.relabel.ksm.output\n  forward_to      = [prometheus.remote_write.sink.receiver]\n  scrape_interval = \"30s\"\n}\n"
+    },
+    {
+      "id": "varlog-files",
+      "name": "Generic /var/log file tail",
+      "description": "Tails arbitrary log files under `/var/log` and ships them to Loki. Adjust the include glob to scope down. Useful for catch-all log collection on Linux hosts that don't speak journald.",
+      "category": "logs",
+      "tags": ["logs", "files", "linux", "loki"],
+      "default_selector": { "collector.os": "linux" },
+      "suggested_name": "varlog-files",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.file/",
+      "requires": [
+        "Alloy has read access to the configured paths (typically root or the `adm` group on Debian/Ubuntu).",
+        "A `loki.write.sink` component must exist (install the `loki-write-sink` template)."
+      ],
+      "content": "// Edit the path globs to scope the file set. local.file_match watches\n// the filesystem so newly created files are picked up automatically.\nlocal.file_match \"varlog\" {\n  path_targets = [\n    { __path__ = \"/var/log/*.log\" },\n    { __path__ = \"/var/log/**/*.log\" },\n  ]\n}\n\nloki.source.file \"varlog\" {\n  targets    = local.file_match.varlog.targets\n  forward_to = [loki.write.sink.receiver]\n}\n"
+    },
+    {
+      "id": "kubernetes-pod-logs",
+      "name": "Kubernetes pod logs",
+      "description": "Discovers every pod via the Kubernetes API and tails each container's logs from the node's `/var/log/pods` tree. Surface namespace, pod, and container as Loki labels. Run as a DaemonSet.",
+      "category": "logs",
+      "tags": ["kubernetes", "k8s", "logs", "loki"],
+      "default_selector": { "platform": "kubernetes" },
+      "suggested_name": "kubernetes-pod-logs",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.kubernetes/",
+      "requires": [
+        "Alloy runs as a DaemonSet with `/var/log/pods` mounted into the container.",
+        "Alloy's ServiceAccount has `get/list/watch` on `pods`.",
+        "A `loki.write.sink` component must exist (install the `loki-write-sink` template)."
+      ],
+      "content": "// Discover all pods cluster-wide and tail their logs. Add an extra\n// keep-rule in discovery.relabel if you want to scope to specific\n// namespaces or annotation patterns.\ndiscovery.kubernetes \"pods_logs\" {\n  role = \"pod\"\n}\n\ndiscovery.relabel \"pods_logs\" {\n  targets = discovery.kubernetes.pods_logs.targets\n\n  rule {\n    source_labels = [\"__meta_kubernetes_namespace\"]\n    target_label  = \"namespace\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_name\"]\n    target_label  = \"pod\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_container_name\"]\n    target_label  = \"container\"\n  }\n}\n\nloki.source.kubernetes \"pods\" {\n  targets    = discovery.relabel.pods_logs.output\n  forward_to = [loki.write.sink.receiver]\n}\n"
+    },
+    {
+      "id": "windows-event-logs",
+      "name": "Windows Event Log",
+      "description": "Tails a Windows Event Log channel (`Application` by default) and ships entries to Loki. Pair with selector `collector.os=windows`. Add additional `loki.source.windowsevent` blocks to capture more channels (System, Security, etc.).",
+      "category": "logs",
+      "tags": ["windows", "logs", "loki", "eventlog"],
+      "default_selector": { "collector.os": "windows" },
+      "suggested_name": "windows-event-logs",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.windowsevent/",
+      "requires": [
+        "Windows host (won't work on Linux collectors).",
+        "Alloy has permission to read the channel — typically requires LocalSystem or membership in `Event Log Readers`.",
+        "A `loki.write.sink` component must exist (install the `loki-write-sink` template)."
+      ],
+      "content": "// Tails the Application event log. Duplicate this block with a\n// different `eventlog_name` to also tail System, Security, etc.\nloki.source.windowsevent \"application\" {\n  eventlog_name = \"Application\"\n  forward_to    = [loki.write.sink.receiver]\n  labels        = {\n    host    = sys.env(\"HOSTNAME\"),\n    job     = \"windowsevent\",\n    channel = \"Application\",\n  }\n}\n"
+    },
+    {
+      "id": "zipkin-receiver",
+      "name": "Zipkin traces receiver",
+      "description": "Accepts Zipkin v2 traces on `:9411` and forwards them to the OTLP traces sink. Pairs with the `tempo-otlp-sink` template (or any other `otelcol.exporter.otlp` named `sink`) to give you a Zipkin ingress without a separate gateway.",
+      "category": "traces",
+      "tags": ["zipkin", "traces", "opentelemetry"],
+      "default_selector": {},
+      "suggested_name": "zipkin-receiver",
+      "docs_url": "https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.receiver.zipkin/",
+      "requires": [
+        "Port 9411 available on the host.",
+        "An `otelcol.exporter.otlp` named `sink` must exist (install the `tempo-otlp-sink` template)."
+      ],
+      "content": "// Zipkin v2 ingress. Forwards into the shared traces sink so the\n// Zipkin clients in your fleet can keep emitting Zipkin while the\n// backend is Tempo / any OTLP destination.\notelcol.receiver.zipkin \"default\" {\n  endpoint = \"0.0.0.0:9411\"\n\n  output {\n    traces = [otelcol.exporter.otlp.sink.input]\n  }\n}\n"
     }
   ]
 }

@@ -44,3 +44,86 @@ func mapFromTF(ctx context.Context, m types.Map) (map[string]string, diag.Diagno
 	}
 	return out, diags
 }
+
+// stringSliceFromList unwraps a tfsdk types.List of strings. A null/unknown
+// input is treated as an empty slice — matches the semantics of
+// `mapFromTF` and keeps "selector = []" stable across plans.
+func stringSliceFromList(ctx context.Context, l types.List) ([]string, diag.Diagnostics) {
+	if l.IsNull() || l.IsUnknown() {
+		return []string{}, nil
+	}
+	out := []string{}
+	diags := l.ElementsAs(ctx, &out, false)
+	if out == nil {
+		out = []string{}
+	}
+	return out, diags
+}
+
+// stringPtrOrNil converts a tfsdk types.String into the *string shape
+// preferred by our JSON DTOs. Both null *and* empty string become nil so
+// `omitempty` JSON tags drop the field entirely on the wire.
+func stringPtrOrNil(s types.String) *string {
+	if s.IsNull() || s.IsUnknown() {
+		return nil
+	}
+	v := s.ValueString()
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+// apiTokenToModel converts a server-side ApiTokenSummary into the tfsdk
+// shape used by the api_token resource. `token` (plaintext) must be threaded
+// through explicitly because the API only returns it once on Create.
+func apiTokenToModel(ctx context.Context, t ApiTokenSummary, token types.String) apiTokenModel {
+	roleIDs := make([]string, 0, len(t.Roles))
+	for _, r := range t.Roles {
+		roleIDs = append(roleIDs, r.ID)
+	}
+	roleList, _ := types.ListValueFrom(ctx, types.StringType, roleIDs)
+
+	return apiTokenModel{
+		ID:          types.StringValue(t.ID),
+		UserID:      types.StringValue(t.UserID),
+		Name:        types.StringValue(t.Name),
+		RoleIDs:     roleList,
+		ExpiresAt:   stringOrNull(t.ExpiresAt),
+		Token:       token,
+		TokenPrefix: types.StringValue(t.TokenPrefix),
+		RevokedAt:   stringOrNull(t.RevokedAt),
+		LastUsedAt:  stringOrNull(t.LastUsedAt),
+		CreatedAt:   types.StringValue(t.CreatedAt),
+	}
+}
+
+// userToModel converts a server-side User into the tfsdk shape used by the
+// resource. `password` is preserved from the prior state (the API never
+// returns it) — callers must thread it through explicitly.
+func userToModel(ctx context.Context, u User, password types.String) userModel {
+	roleIDs := make([]string, 0, len(u.Roles))
+	for _, r := range u.Roles {
+		roleIDs = append(roleIDs, r.ID)
+	}
+	roleList, _ := types.ListValueFrom(ctx, types.StringType, roleIDs)
+
+	updatedAt := u.UpdatedAt
+	if updatedAt == "" {
+		// POST /users response omits updated_at; fall back to created_at
+		// to keep the computed attribute non-null. Read() always
+		// re-fetches via GET so subsequent applies see the real value.
+		updatedAt = u.CreatedAt
+	}
+
+	return userModel{
+		ID:        types.StringValue(u.ID),
+		Email:     types.StringValue(u.Email),
+		Name:      stringOrNull(u.Name),
+		Password:  password,
+		Disabled:  types.BoolValue(u.Disabled),
+		RoleIDs:   roleList,
+		CreatedAt: types.StringValue(u.CreatedAt),
+		UpdatedAt: types.StringValue(updatedAt),
+	}
+}

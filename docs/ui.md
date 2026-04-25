@@ -27,6 +27,12 @@ browser ──► /ui/**        (static, @fastify/static)
   every request by `src/api/client.ts`. The `TokenGate` component probes
   `GET /pipelines` at mount; if the API returns 401/403 it shows the login
   screen.
+- **State management**: most state stays in `useState` / `useReducer`
+  inside the component that owns it. Three small Zustand stores cover
+  the genuinely global cases: `useAuthStore` (token + sign-in status),
+  `useToastStore` (notifications), and `useCacheStore` (in-memory list
+  cache for snappy navigation). See [`docs/state.md`](./state.md) for
+  the decision tree and per-store API.
 - **Routing**: served under `/ui/` in production (see `vite.config.ts`
   `base: "/ui/"` and `main.tsx` `basename`). The fleet-manager has a
   catch-all SPA fallback so deep links like `/ui/pipelines/<uuid>` work.
@@ -125,10 +131,16 @@ apps/fleet-ui/
       Layout.tsx        sidebar + main outlet
       PageHeader.tsx    title / subtitle / actions
       Async.tsx         useAsync hook + AsyncBoundary
+      CachedAsync.tsx   useCachedList — stale-while-revalidate
+      Toaster.tsx       global toast viewport (mounted once in App)
       Pill.tsx          status tags
       Code.tsx          code/preview block
       SelectorEditor.tsx  key/value editor
-      PipelineForm.tsx  shared create + edit form
+      PipelineForm.tsx  shared create + edit form (useReducer)
+    store/
+      auth.ts           bearer token + gate status (Zustand)
+      toasts.ts         notification queue (Zustand)
+      cache.ts          list-response memory cache (Zustand)
     pages/
       Overview.tsx
       Collectors.tsx

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useReducer } from "react";
 import { SelectorEditor } from "@/components/SelectorEditor";
 import { validatePipelineContent, type ValidateResult } from "@/api/pipelines";
 import { ApiError } from "@/api/client";
@@ -16,6 +16,70 @@ export interface PipelineFormValue {
   content: string;
 }
 
+/**
+ * Form state lives in a useReducer rather than seven separate useStates.
+ * Reasoning:
+ *   - Local to this component (dies on unmount), so a global store
+ *     (Zustand etc.) would be the wrong abstraction — it'd cause stale
+ *     values to leak across navigations.
+ *   - Multiple fields are mutated together (handleValidate clears
+ *     `error` AND `validation`, then sets `validating`). A reducer makes
+ *     those transitions atomic and explicit instead of a sequence of
+ *     unrelated setters that React happens to batch.
+ *   - All transitions are described as `Action`s, which is far easier
+ *     to reason about than sprinkled `setX(...)` calls.
+ */
+interface FormState {
+  // user-editable fields (the value we POST/PATCH)
+  name: string;
+  selector: Labels;
+  enabled: boolean;
+  content: string;
+  // ephemeral UI state
+  error: string | null;
+  validation: ValidateResult | null;
+  validating: boolean;
+}
+
+type Action =
+  | { type: "field"; patch: Partial<Pick<FormState, "name" | "selector" | "enabled" | "content">> }
+  | { type: "error"; message: string | null }
+  | { type: "validate_start" }
+  | { type: "validate_done"; result: ValidateResult }
+  | { type: "validate_failed"; message: string };
+
+function reducer(state: FormState, action: Action): FormState {
+  switch (action.type) {
+    case "field":
+      return { ...state, ...action.patch };
+    case "error":
+      return { ...state, error: action.message };
+    case "validate_start":
+      // Starting a new validation invalidates the previous result and
+      // any error from the previous attempt. Done in one atomic update
+      // so the UI never flickers an old result while validating.
+      return { ...state, error: null, validation: null, validating: true };
+    case "validate_done":
+      return { ...state, validating: false, validation: action.result };
+    case "validate_failed":
+      return { ...state, validating: false, error: action.message };
+    default:
+      return state;
+  }
+}
+
+function init(initial: PipelineFormValue): FormState {
+  return {
+    name: initial.name,
+    selector: initial.selector,
+    enabled: initial.enabled,
+    content: initial.content,
+    error: null,
+    validation: null,
+    validating: false,
+  };
+}
+
 export function PipelineForm({
   initial,
   submitting,
@@ -31,39 +95,34 @@ export function PipelineForm({
   onSubmit: (v: PipelineFormValue) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState(initial.name);
-  const [selector, setSelector] = useState<Labels>(initial.selector);
-  const [enabled, setEnabled] = useState(initial.enabled);
-  const [content, setContent] = useState(initial.content);
-  const [error, setError] = useState<string | null>(null);
-  const [validation, setValidation] = useState<ValidateResult | null>(null);
-  const [validating, setValidating] = useState(false);
+  const [state, dispatch] = useReducer(reducer, initial, init);
+  const { name, selector, enabled, content, error, validation, validating } = state;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    if (!name.trim()) return setError("Name is required.");
-    if (!content.trim()) return setError("Content is required.");
+    if (!name.trim()) return dispatch({ type: "error", message: "Name is required." });
+    if (!content.trim()) return dispatch({ type: "error", message: "Content is required." });
+    dispatch({ type: "error", message: null });
     onSubmit({ name: name.trim(), selector, enabled, content });
   }
 
   async function handleValidate() {
-    setError(null);
-    setValidation(null);
     if (!content.trim()) {
-      setError("Content is required.");
+      dispatch({ type: "error", message: "Content is required." });
       return;
     }
-    setValidating(true);
+    dispatch({ type: "validate_start" });
     try {
       const r = await validatePipelineContent(content);
-      setValidation(r);
+      dispatch({ type: "validate_done", result: r });
     } catch (err) {
-      if (err instanceof ApiError) setError(`${err.message} (HTTP ${err.status})`);
-      else if (err instanceof Error) setError(err.message);
-      else setError("Unknown validation error");
-    } finally {
-      setValidating(false);
+      const msg =
+        err instanceof ApiError
+          ? `${err.message} (HTTP ${err.status})`
+          : err instanceof Error
+            ? err.message
+            : "Unknown validation error";
+      dispatch({ type: "validate_failed", message: msg });
     }
   }
 
@@ -78,7 +137,7 @@ export function PipelineForm({
               <input
                 className="input"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => dispatch({ type: "field", patch: { name: e.target.value } })}
                 placeholder="edge-metrics"
                 disabled={disableName}
               />
@@ -94,7 +153,9 @@ export function PipelineForm({
                 <input
                   type="checkbox"
                   checked={enabled}
-                  onChange={(e) => setEnabled(e.target.checked)}
+                  onChange={(e) =>
+                    dispatch({ type: "field", patch: { enabled: e.target.checked } })
+                  }
                 />
                 <span>Enabled (delivered to matching collectors)</span>
               </label>
@@ -108,7 +169,10 @@ export function PipelineForm({
             Match collectors whose <code className="mono">local_attributes</code>{" "}
             contain every label below. Empty selector = applies to everyone.
           </p>
-          <SelectorEditor value={selector} onChange={setSelector} />
+          <SelectorEditor
+            value={selector}
+            onChange={(next) => dispatch({ type: "field", patch: { selector: next } })}
+          />
         </section>
       </div>
 
@@ -128,7 +192,7 @@ export function PipelineForm({
         <textarea
           className="input mono text-xs min-h-[360px] resize-y"
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={(e) => dispatch({ type: "field", patch: { content: e.target.value } })}
           placeholder={`prometheus.exporter.unix "default" { }\n\nprometheus.scrape "node" {\n  targets    = prometheus.exporter.unix.default.targets\n  forward_to = [prometheus.remote_write.sink.receiver]\n}`}
           spellCheck={false}
         />
@@ -152,8 +216,8 @@ export function PipelineForm({
           </div>
           {validation.errors.length > 0 && (
             <ul className="mono text-[11px] leading-relaxed list-disc list-inside space-y-0.5">
-              {validation.errors.map((e, i) => (
-                <li key={i}>{e}</li>
+              {validation.errors.map((e) => (
+                <li key={e}>{e}</li>
               ))}
             </ul>
           )}
