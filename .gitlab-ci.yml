@@ -154,7 +154,13 @@ lint:dco:
 # example, github actions if any). Catches indentation goofs early.
 lint:yaml:
   stage: lint
-  image: cytopia/yamllint:latest
+  # cytopia/yamllint's ENTRYPOINT is the yamllint binary itself, which
+  # makes the GitLab runner's bash bootstrap script get passed as an
+  # argument to yamllint instead of being executed. Override entrypoint
+  # so the runner can run a normal shell inside the container.
+  image:
+    name: cytopia/yamllint:latest
+    entrypoint: [""]
   needs: []
   <<: *rules_mr_or_default_branch
   before_script: []
