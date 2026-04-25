@@ -445,6 +445,12 @@ release:provider:goreleaser:
       if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
         echo "$GPG_PRIVATE_KEY" | gpg --batch --import
         export GPG_FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: "/^fpr:/ {print \$10; exit}")"
+        # Materialize the passphrase as a 0600 file so goreleaser can
+        # pass it to gpg via --passphrase-file (loopback pinentry).
+        # Argv-based --passphrase would briefly leak via /proc/<pid>/cmdline.
+        export GPG_PASSPHRASE_FILE="$(mktemp)"
+        chmod 600 "$GPG_PASSPHRASE_FILE"
+        printf "%s" "${GPG_PASSPHRASE:-}" > "$GPG_PASSPHRASE_FILE"
         echo "✓ GPG signing enabled — fingerprint $GPG_FINGERPRINT"
       else
         echo "⚠ GPG_PRIVATE_KEY not set — skipping signature step."

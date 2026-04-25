@@ -106,7 +106,16 @@ checksum:
 signs:
   - artifacts: checksum
     args:
+      # --pinentry-mode=loopback + --passphrase-file: the CI runner has
+      # no TTY, so gpg's default pinentry can't prompt for the
+      # passphrase ('signing failed: Not a tty'). loopback mode pulls
+      # the passphrase from --passphrase-file, which the
+      # release:provider:goreleaser job materializes from
+      # $GPG_PASSPHRASE before invoking goreleaser.
       - '--batch'
+      - '--pinentry-mode=loopback'
+      - '--passphrase-file'
+      - '{{ .Env.GPG_PASSPHRASE_FILE }}'
       - '--local-user'
       - '{{ .Env.GPG_FINGERPRINT }}'
       - '--output'
