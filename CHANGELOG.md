@@ -16,6 +16,11 @@ Entries are grouped into:
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-04-25
+
+First public open-source release. Everything previously listed under
+`Unreleased` ships here.
+
 ### Added
 
 - **Open-source release plumbing.** Apache-2.0 license, NOTICE,
@@ -70,9 +75,7 @@ Entries are grouped into:
   with `"[redacted]"` in production. Locks the no-secrets-in-audit
   invariant in for future contributors.
 
-## [0.1.0] — initial development snapshot
-
-### Added
+### Inherited from the pre-release development snapshot
 
 - `fleet-manager` Fastify API with the upstream-compatible
   `collector.v1.CollectorService` Connect RPC and a legacy REST
