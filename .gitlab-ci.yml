@@ -536,9 +536,17 @@ mirror:github:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
   script:
-    # `--mirror` pushes ALL refs (branches, tags, notes) and prunes refs
-    # that have been deleted on GitLab — making GitHub a true mirror.
+    # GitLab CI's automatic clone is shallow, detached-HEAD, and only
+    # has the triggering ref under refs/remotes/origin/. A `git push
+    # --mirror` from that state pushes refs/remotes/origin/* and
+    # refs/pipelines/* verbatim — leaving GitHub with no actual
+    # `refs/heads/main` and a non-loading repo page (caught the hard
+    # way on the first run). Fetch real branch + tag refs into local
+    # heads first, then push only those refs.
     - git remote add github "git@${GITHUB_MIRROR_URL/https:\/\//}" || true
     - git remote set-url github "git@github.com:${GITHUB_MIRROR_URL#github.com/}"
-    - git fetch --prune origin
-    - git push --mirror github
+    - git fetch --tags --prune origin '+refs/heads/*:refs/heads/*'
+    # --prune deletes GitHub refs that no longer exist on GitLab, so
+    # the mirror is a true mirror. Explicit refspecs keep us from
+    # leaking GitLab-internal refs (refs/pipelines/*, refs/keep-around/*).
+    - git push --prune github '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
