@@ -60,9 +60,12 @@ builds:
       - '386'
       - arm
       - arm64
+    # Build a single linux/arm variant. The Terraform Registry only
+    # advertises "linux_arm" without distinguishing armv6/armv7, so
+    # producing two archives with the same name (goarm 6 + 7) would
+    # collide. Pin to goarm=6, the broader-compatibility variant.
     goarm:
       - '6'
-      - '7'
     ignore:
       - goos: darwin
         goarch: '386'
