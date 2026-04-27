@@ -8,6 +8,7 @@ WORKDIR /app
 # Copy workspace manifests first for better layer caching.
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/sdk/package.json packages/sdk/
 COPY apps/fleet-manager/package.json apps/fleet-manager/
 COPY apps/fleet-agent/package.json apps/fleet-agent/
 COPY apps/fleet-ui/package.json apps/fleet-ui/
